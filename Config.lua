@@ -24,6 +24,8 @@ local DEFAULTS = {
     guildKillShare = 75,    -- % of the raid that must be guild members for a guild kill
     honorTarget = 5000,     -- weekly honor that gives the full honor score
     responseTimeout = 60,   -- seconds the loot popup stays up
+    attunes = {},           -- attunements officers added: key -> { n = name, s = short label, q = { questIDs }, i = itemID }
+    attunesOff = {},        -- built-in attunements officers hid: key -> true
 }
 
 -- What the options tab edits, in order (the wanted list has its own tab).
@@ -62,6 +64,22 @@ local function Normalize(t)
     end
     for id, on in pairs(t.finals) do
         if type(id) ~= "number" or on ~= true then t.finals[id] = nil end
+    end
+    for key, a in pairs(t.attunes) do
+        local ok = type(key) == "string" and type(a) == "table" and type(a.n) == "string" and type(a.s) == "string"
+            and (type(a.q) == "table" or type(a.i) == "number")
+        if ok then
+            a.q = type(a.q) == "table" and a.q or {}
+            for i = #a.q, 1, -1 do
+                if type(a.q[i]) ~= "number" then table.remove(a.q, i) end
+            end
+            if type(a.i) ~= "number" then a.i = nil end
+            ok = #a.q > 0 or a.i ~= nil
+        end
+        if not ok then t.attunes[key] = nil end
+    end
+    for key, off in pairs(t.attunesOff) do
+        if type(key) ~= "string" or off ~= true then t.attunesOff[key] = nil end
     end
     return t
 end
@@ -177,6 +195,24 @@ end
 function Config:SetFinal(encounterID, on)
     if not self:CanEdit() then return nil, "Only officers can change final bosses." end
     cfg.finals[encounterID] = on and true or nil
+    self:Publish()
+    return true
+end
+
+-- Adds an attunement (def = { n, s, q, i }) under a new key, or removes one
+-- (def = nil): an added one is deleted, a built-in one hidden. restore = true
+-- brings back every hidden built-in one.
+function Config:SetAttune(key, def, restore)
+    if not self:CanEdit() then return nil, "Only officers can change the attunements." end
+    if restore then
+        wipe(cfg.attunesOff)
+    elseif def then
+        cfg.attunes[key] = def
+    elseif cfg.attunes[key] then
+        cfg.attunes[key] = nil
+    else
+        cfg.attunesOff[key] = true
+    end
     self:Publish()
     return true
 end

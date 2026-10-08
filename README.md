@@ -96,12 +96,15 @@ that off per addon in EllesmereUI's options.
 | `/af item <shift-click items>` | Start a loot session by hand (loot authority) |
 | `/af adjust <name> <raid\|bank\|honor> <+/-points> [reason]` | Officers: correct this week's points in a category (0 removes the correction) |
 | `/af bank` | Guild bank rules and the wanted list (officers edit) |
+| `/af attune` | Who in the guild is attuned to which raid (officers add or remove attunements) |
+| `/af crafters [item]` | Who in the guild can craft something, or everyone's professions |
+| `/af wish [item]` | Your wishlist (up to 10 ranked items, seen only by officers), or add an item to it |
 | `/af bench add\|remove <name>`, `/af bench list\|clear` | Officers: bench players credited for the kills you record |
 | `/af kill <boss>` | Officers: record a guild kill for your group by hand |
 | `/af options` / `/af config` | Effort rules (officers edit, everyone views) / print them |
 | `/af log` | Officers: ledger events (Log tab) |
 | `/af export` / `/af import` | Officers: back up / restore the ledger |
-| `/af versions` | Addon versions in your raid |
+| `/af versions` (or `/af check`) | Who in your group has the addon and which version, with durability, flasks / elixirs and range |
 
 ## Loot
 The **loot authority** is the master looter when master loot is on, otherwise the raid leader.

@@ -188,6 +188,7 @@ function Loot:StartTest(link)
             response = response <= 3 and response or nil,
             equipped = (response <= 3 and math.random() < 0.8) and slotGear or {},
             note = (response <= 2 and math.random() < 0.5) and TEST_NOTES[math.random(#TEST_NOTES)] or nil,
+            wish = (response <= 2 and math.random() < 0.4) and math.random(1, AF.Wishlist.MAX) or nil,
             won = won,
         })
     end
@@ -218,7 +219,8 @@ AF.Comm:On("RESP", function(sender, data)
     for _, link in ipairs(type(data.eq) == "table" and data.eq or {}) do
         if type(link) == "string" then table.insert(eq, link) end
     end
-    session.responses[sender] = { r = data.r, eq = eq, note = CleanNote(data.n) }
+    local wish = type(data.w) == "number" and data.w >= 1 and data.w <= AF.Wishlist.MAX and math.floor(data.w) or nil
+    session.responses[sender] = { r = data.r, eq = eq, note = CleanNote(data.n), wish = wish }
     AF:Fire("LOOT_UPDATED", session.sid)
 end)
 
@@ -305,7 +307,7 @@ local function TestCandidates(session)
     for _, fake in ipairs(session.fake) do
         local resp = fake.response
         table.insert(list, {
-            name = fake.name, response = resp, equipped = fake.equipped, won = fake.won, note = fake.note,
+            name = fake.name, response = resp, equipped = fake.equipped, won = fake.won, note = fake.note, wish = fake.wish,
             member = { classFile = fake.classFile, weeks = fake.weeks, effort = fake.effort },
             effort = fake.effort, group = resp and GROUP[resp] or 4, voters = votes[fake.name] or {},
         })
@@ -315,7 +317,7 @@ local function TestCandidates(session)
     local me = AF.Standings:Get(AF.playerName)
     table.insert(list, {
         name = AF.playerName, response = mine and mine.r, equipped = mine and mine.eq or {}, won = {},
-        note = mine and mine.note, voters = votes[AF.playerName] or {},
+        note = mine and mine.note, wish = AF.Wishlist:MyRank(session.link), voters = votes[AF.playerName] or {},
         member = me, effort = me and me.effort or -1, group = mine and GROUP[mine.r] or 4,
     })
     return SortCandidates(list)
@@ -341,6 +343,8 @@ function Loot:Candidates(sid)
             response = resp and resp.r,
             equipped = resp and resp.eq or {},
             note = resp and resp.note,
+            -- Rank on their wishlist: from their answer, else from the list we have.
+            wish = resp and resp.wish or AF.Wishlist:RankOf(name, session.link),
             member = member,
             effort = member and member.effort or -1,
             won = self:WonThisWeek(name),
@@ -515,11 +519,13 @@ function Loot:Respond(entry, response, note)
     if entry.test then
         local session = sessions[entry.sid]
         if session then
-            session.responses[AF.playerName] = { r = response, eq = Loot.EquippedFor(entry.link), note = note }
+            session.responses[AF.playerName] = { r = response, eq = Loot.EquippedFor(entry.link), note = note,
+                wish = AF.Wishlist:MyRank(entry.link) }
         end
         AF:Fire("LOOT_UPDATED", entry.sid)
     else
-        local payload = { sid = entry.sid, r = response, eq = Loot.EquippedFor(entry.link), n = note }
+        local payload = { sid = entry.sid, r = response, eq = Loot.EquippedFor(entry.link), n = note,
+            w = AF.Wishlist:MyRank(entry.link) }
         for _, name in ipairs(self:Council(entry.from)) do
             AF.Comm:Send("RESP", payload, "WHISPER", name)
         end

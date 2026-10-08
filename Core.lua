@@ -5,9 +5,10 @@
 local ADDON_NAME, AF = ...
 _G.AdventForever = AF
 
-AF.VERSION = 20001          -- major * 10000 + minor * 100 + patch; bump with ## Version
-AF.VERSION_STRING = "2.0.1"
+AF.VERSION = 20002          -- major * 10000 + minor * 100 + patch; bump with ## Version
+AF.VERSION_STRING = "2.0.2"
 AF.PREFIX = "AdvForever"    -- addon message prefix (max 16 chars)
+AF.PREFIX_BULK = "AdvForeverBulk"   -- the slow lane for large data (Comm.lua)
 
 -------------------------------------------------------------------------------
 --  Events and internal messages
@@ -292,6 +293,9 @@ function AF:Debug()
     self:Printf("Honor: this week %d (from %s) | weekly stats: %s | honor currency: %s | inspect honor: %s (event: %s)",
         h.honor, h.source, h.weeklyStats and "yes" or "no", tostring(h.currency),
         h.inspect and "YES" or "no", tostring(h.inspectEvent))
+    local craftApi, craftWindow, myRecipes, crafters = self.Professions.ApiReport()
+    self:Printf("Professions: recipe API %s | enchanting window API: %s | your recipes: %d | characters known: %d",
+        craftApi, craftWindow and "yes" or "no", myRecipes, crafters)
     local bankApi, interaction, pendingDeposits = self.Bank.ApiReport()
     self:Printf("Guild bank API: %s | bank window event: %s | your unconfirmed deposit reports: %d",
         bankApi, interaction and "interaction manager" or "GUILDBANKFRAME", pendingDeposits)
@@ -321,11 +325,14 @@ local HELP = {
     "/af adjust <name> <raid|bank|honor> <+/-points> [reason] - correct this week's points in a category (officers)",
     "/af log - ledger events (Log tab, officers)",
     "/af bank - guild bank rules and the wanted list (Bank tab)",
+    "/af attune - who in the guild is attuned to which raid (officers add or remove attunements there)",
+    "/af crafters [item] - who in the guild can craft something; without a search, everyone's professions",
+    "/af wish [shift-click item] - your wishlist (up to 10 items, ranked; only officers see it), or add an item to it",
     "/af bench add|remove <name>, /af bench list|clear - players on your bench get credit for guild kills you record (officers)",
     "/af kill <boss> - record a guild kill for your group by hand, if the game hid it (officers)",
     "/af final - mark (or unmark) the dungeon boss you just killed as the dungeon's final boss (officers)",
     "/af test [shift-click item] - try the loot popup and loot window alone (nothing is sent)",
-    "/af versions - addon versions in your raid",
+    "/af versions (or /af check) - who in your group has the addon and which version, with durability, flasks / elixirs and range",
     "/af options - effort rules (officers edit, everyone can view); /af config prints them",
     "/af export, /af import - copy the ledger out as text / merge a copy back in (officers)",
 }
@@ -438,6 +445,17 @@ commands.unlink = function(args)
     AF.Alts:OfficerLink(name, name)
 end
 commands.rules = function() AF.UI:ShowRules() end
+commands.attune = function() AF.UI:ShowAttunements() end
+commands.crafters = function(args)
+    AF.UI:ShowCrafters()
+    if args ~= "" then AF.UI:SearchCrafters(args) end
+end
+commands.wish = function(args)
+    if args == "" then return AF.UI:ShowWishlist() end
+    local rank, err = AF.Wishlist:Add(args)
+    if not rank then return AF:Print(err) end
+    AF:Printf("Added to your wishlist at #%d.", rank)
+end
 commands.kill = function(args) AF.Attendance:Manual(args) end
 commands.final = function() AF.Dungeons:ToggleFinal() end
 
@@ -447,7 +465,8 @@ commands.test = function(args)
     AF.Loot:StartTest(args:match("|c[^|]*|Hitem:.-|h|r"))
 end
 
-commands.versions = function() AF.Comm:QueryVersions() end
+commands.versions = function() AF.UI:ShowVersions() end
+commands.check = commands.versions
 commands.config = function() AF.Config:PrintConfig() end
 commands.options = function() AF.UI:ToggleOptions() end
 

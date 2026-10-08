@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: AdventForever
 ## Notes: Guild effort scores (raids, guild bank, honor) shown to officers at loot time.
-## Version: 2.0.1
+## Version: 2.0.2
 ## IconTexture: Interface\AddOns\AdventForever\Media\Logo
 ## X-Wago-ID: j6jAa0NR
 ## SavedVariables: AdventForeverDB
@@ -19,6 +19,10 @@ Alts.lua
 Dungeons.lua
 Recruit.lua
 Trade.lua
+Versions.lua
+Wishlist.lua
+Professions.lua
+Attunements.lua
 GuildLoot.lua
 Loot.lua
 Theme.lua

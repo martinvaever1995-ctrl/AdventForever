@@ -1,5 +1,57 @@
 # AdventForever
 
+## v2.0.2 (beta)
+
+### Versions and raid readiness
+- `/af versions` (or `/af check`) opens a window listing everyone in your group:
+  - their **addon version**: green when current, orange when outdated, red when not installed
+  - their **repair** percentage (the tooltip shows the lowest item)
+  - whether they have a **flask or elixirs** up (the tooltip names them)
+  - whether they're **in range**
+- Officers get a **Remind** button that whispers every guild member in the group who is
+  outdated or hasn't got the addon.
+- When a newer version is out, a small **update card** tells you once per session, instead of
+  a chat line that's easy to miss.
+- Players on 2.0.1 or older still show their version, but not their repair or buffs.
+
+### Wishlists
+- The new **Wishlist** tab: rank up to 10 items you want, most wanted first. Shift-click an
+  item into the box, or use `/af wish <shift-click item>`. Move items up and down, or remove them.
+- Only officers see your list. It reaches them when you change it and when you or they log in.
+- When an item on your wishlist drops, the loot popup says **On your wishlist (#2)** and plays
+  a sound.
+- In the loot window, officers see each player's wishlist rank for the item next to their
+  note (**wish #2**).
+- Officers get a **Guild** view in the Wishlist tab: every wished-for item, how many players
+  want it and who (with their rank and effort).
+- Item tooltips show officers who has the item on their wishlist. Raiders see their own rank.
+
+### Crafters
+- The new **Crafters** tab (`/af crafters`) is the guild's profession directory:
+  - **Search** for an item or enchant (or shift-click one) to see who in the guild can make it.
+    Online crafters are shown in green, and clicking a result whispers the first one online.
+  - With no search, it lists everyone's **professions** with their skill level and number of
+    recipes, gathering professions included.
+- Your recipes are read when you open a profession window, and your skill levels when you log
+  in. Recipes are only ever added, so a filtered window can't lose any.
+- Item tooltips show **Crafted by:** with up to 4 guild members, online ones first.
+- The directory is shared quietly in the background. Large data waits behind everything else,
+  so it never delays loot, votes or effort updates.
+
+### Attunements
+- The new **Attunements** tab (`/af attune`) shows who in the guild is attuned to what, as a grid:
+  a filled square means attuned, and **?** means not known yet. Players with the most
+  attunements are listed first.
+- Hover a column to see what it takes and how many are attuned, or a player to see all of
+  theirs.
+- Built in: Upper Blackrock Spire, Molten Core, Onyxia's Lair, Blackwing Lair and Naxxramas.
+  An attunement counts when its quest is done or its key item is in your bags, bank or key ring.
+- Officers can **remove** an attunement the guild doesn't need (click its column) and **add**
+  new ones as WoW: Forever releases them: a name, a short label, and the quest IDs that
+  finish it or its key item. "Restore classic ones" brings back removed built-in ones.
+- Your client checks your attunements after login, after you turn in a quest and when your
+  bags change, and shares them with the guild.
+
 ## v2.0.1 (beta)
 
 ### Guild loot in raids

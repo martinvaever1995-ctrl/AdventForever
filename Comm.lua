@@ -1,7 +1,7 @@
 -------------------------------------------------------------------------------
 --  Comm.lua -- addon messages: a small serializer, chunking for the 255-byte
---  limit, a throttled send queue that waits out chat lockdown, and the version
---  check.
+--  limit and a throttled send queue that waits out chat lockdown. The version
+--  check lives in Versions.lua.
 --
 --  Wire format: one header byte then data. "S" = whole message, "F"/"M"/"L" =
 --  first/middle/last chunk. The data is Serialize({ kind, payload }).
@@ -10,13 +10,21 @@ local _, AF = ...
 local Comm = AF:NewModule("Comm")
 
 local CHUNK = 250           -- bytes of data per message (255 minus header, with margin)
-local BURST, REGEN = 10, 1  -- per-prefix allowance: 10 messages, 1 more per second
+local REGEN = 1             -- the game's allowance per prefix: a burst, then 1 message a second
 local GIVE_UP = 120         -- seconds a queued message may wait (lockdown) before it is dropped
 
+-- Two lanes, each with its own prefix and allowance. Bulk data (the profession
+-- directory) goes on the slow lane, and only while the main lane has nothing
+-- waiting, so it never holds up loot, votes or the ledger. Clients that don't
+-- know the bulk prefix never see it.
+local lanes = {
+    main = { prefix = AF.PREFIX, queue = {}, burst = 10 },
+    bulk = { prefix = AF.PREFIX_BULK, queue = {}, burst = 3 },
+}
+for _, lane in pairs(lanes) do lane.tokens, lane.lastRegen = lane.burst, GetTime() end
+
 local handlers = {}
-local queue = {}
 local partial = {}
-local tokens, lastRegen = BURST, GetTime()
 local nextGroup = 0
 local ticker
 
@@ -87,35 +95,42 @@ end
 -------------------------------------------------------------------------------
 local Result = Enum.SendAddonMessageResult
 
-local function TrySend(item)
+local function TrySend(lane, item)
     if AF:IsChatLocked() then return false end
-    local ok, result = pcall(C_ChatInfo.SendAddonMessage, AF.PREFIX, item.msg, item.channel, item.target)
+    local ok, result = pcall(C_ChatInfo.SendAddonMessage, lane.prefix, item.msg, item.channel, item.target)
     if not ok then return false end
     return result == nil or result == true or (Result and result == Result.Success)
 end
 
 -- Drops every queued chunk of one message, so a receiver never gets half of it.
-local function DropGroup(group)
+local function DropGroup(queue, group)
     for i = #queue, 1, -1 do
         if queue[i].group == group then table.remove(queue, i) end
     end
 end
 
-local function Process()
-    local now = GetTime()
-    tokens = math.min(BURST, tokens + (now - lastRegen) * REGEN)
-    lastRegen = now
-    while queue[1] and tokens >= 1 do
+local function Drain(lane, now)
+    local queue = lane.queue
+    lane.tokens = math.min(lane.burst, lane.tokens + (now - lane.lastRegen) * REGEN)
+    lane.lastRegen = now
+    while queue[1] and lane.tokens >= 1 do
         local item = queue[1]
-        if TrySend(item) then
+        item.queued = item.queued or now     -- bulk items start their clock at the head of the line
+        if TrySend(lane, item) then
             table.remove(queue, 1)
-            tokens = tokens - 1
+            lane.tokens = lane.tokens - 1
         else
-            if now - item.queued > GIVE_UP then DropGroup(item.group) end
+            if now - item.queued > GIVE_UP then DropGroup(queue, item.group) end
             break   -- throttled or locked down: try again next tick
         end
     end
-    if not queue[1] and ticker then
+end
+
+local function Process()
+    local now = GetTime()
+    Drain(lanes.main, now)
+    if not lanes.main.queue[1] then Drain(lanes.bulk, now) end
+    if not lanes.main.queue[1] and not lanes.bulk.queue[1] and ticker then
         ticker:Cancel()
         ticker = nil
     end
@@ -131,7 +146,8 @@ local function Dispatch(sender, data, channel)
 end
 
 -- Sends { kind, payload } on GUILD, RAID, PARTY or WHISPER (target = full name).
-function Comm:Send(kind, payload, channel, target)
+-- bulk = true puts it on the slow lane (large, unhurried data).
+function Comm:Send(kind, payload, channel, target, bulk)
     if channel == "RAID" and not IsInRaid() then
         if not IsInGroup() then return end
         channel = "PARTY"
@@ -143,7 +159,8 @@ function Comm:Send(kind, payload, channel, target)
     end
 
     nextGroup = nextGroup + 1
-    local now = GetTime()
+    local queue = (bulk and lanes.bulk or lanes.main).queue
+    local now = not bulk and GetTime() or nil
     local function Add(msg)
         table.insert(queue, { msg = msg, channel = channel, target = target, group = nextGroup, queued = now })
     end
@@ -172,12 +189,12 @@ end
 --  Receiving
 -------------------------------------------------------------------------------
 AF:RegisterEvent("CHAT_MSG_ADDON", function(_, prefix, msg, channel, sender)
-    if AF:IsSecret(prefix) or prefix ~= AF.PREFIX then return end
+    if AF:IsSecret(prefix) or (prefix ~= AF.PREFIX and prefix ~= AF.PREFIX_BULK) then return end
     if AF:IsSecret(msg) or AF:IsSecret(sender) then return end
     sender = AF:FullName(sender)
     if not sender then return end
     local header, data = msg:sub(1, 1), msg:sub(2)
-    local key = sender .. "\001" .. channel
+    local key = sender .. "\001" .. channel .. "\001" .. prefix
     if header == "S" then
         Dispatch(sender, data, channel)
     elseif header == "F" then
@@ -196,66 +213,5 @@ end)
 
 function Comm:Init()
     C_ChatInfo.RegisterAddonMessagePrefix(AF.PREFIX)
+    C_ChatInfo.RegisterAddonMessagePrefix(AF.PREFIX_BULK)
 end
-
--------------------------------------------------------------------------------
---  Version check
--------------------------------------------------------------------------------
-local versions = {}         -- full name -> version number
-local warned = false
-local replied = {}
-local wasInRaid = false
-
-local function VersionString(v)
-    return ("%d.%d.%d"):format(math.floor(v / 10000), math.floor(v / 100) % 100, v % 100)
-end
-
-Comm:On("VER", function(sender, version, channel)
-    if type(version) ~= "number" or sender == AF.playerName then return end
-    versions[sender] = version
-    if version > AF.VERSION and not warned then
-        warned = true
-        AF:Printf("|cffff5555A newer version (%s) is out; you have %s. Please update.|r",
-            VersionString(version), AF.VERSION_STRING)
-    elseif version < AF.VERSION and channel ~= "WHISPER" and AF.Ledger:CanRecord() and not replied[sender] then
-        -- Officers tell outdated players directly, once per session.
-        replied[sender] = true
-        Comm:Send("VER", AF.VERSION, "WHISPER", sender)
-    end
-end)
-
-Comm:On("VERQ", function(sender)
-    Comm:Send("VER", AF.VERSION, "WHISPER", sender)
-end)
-
-function Comm:QueryVersions()
-    if not IsInGroup() then return AF:Print("You are not in a group.") end
-    Comm:Send("VERQ", true, "RAID")
-    AF:Print("Asking the group for versions...")
-    C_Timer.After(4, function()
-        local outdated, missing = {}, {}
-        for _, name in ipairs(AF:GroupMembers()) do
-            local v = name == AF.playerName and AF.VERSION or versions[name]
-            if not v then
-                table.insert(missing, AF:ShortName(name))
-            elseif v < AF.VERSION then
-                table.insert(outdated, ("%s (%s)"):format(AF:ShortName(name), VersionString(v)))
-            end
-        end
-        AF:Printf("Outdated: %s", #outdated > 0 and table.concat(outdated, ", ") or "none")
-        AF:Printf("Not installed / no answer: %s", #missing > 0 and table.concat(missing, ", ") or "none")
-    end)
-end
-
-function Comm:Enable()
-    C_Timer.After(10, function() Comm:Send("VER", AF.VERSION, "GUILD") end)
-    wasInRaid = IsInRaid()
-end
-
-AF:RegisterEvent("GROUP_ROSTER_UPDATE", function()
-    local inRaid = IsInRaid()
-    if inRaid and not wasInRaid then
-        C_Timer.After(3, function() Comm:Send("VER", AF.VERSION, "RAID") end)
-    end
-    wasInRaid = inRaid
-end)

@@ -92,7 +92,8 @@ end
 --  Main window: tabs
 -------------------------------------------------------------------------------
 local main
-local Effort, Me, Rules, LootTab, Log, BankTab, Options, RecruitTab = {}, {}, {}, {}, {}, {}, {}, {}
+local Effort, Me, Rules, LootTab, Log, BankTab, Options, RecruitTab, WishTab, CraftTab, AttuneTab =
+    {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
 
 local SIDEBAR_W = 150
 local CONTENT_W = 480
@@ -104,6 +105,9 @@ local NAV = {
     { page = 2, label = "Me", icon = "me" },
     { page = 3, label = "Rules", icon = "rules" },
     { page = 6, label = "Bank", icon = "bank" },
+    { page = 9, label = "Wishlist", icon = "wish" },
+    { page = 10, label = "Crafters", icon = "craft" },
+    { page = 11, label = "Attunements", icon = "attune" },
     { page = 4, label = "Loot history", icon = "loot", officer = true },
     { page = 5, label = "Log", icon = "log", officer = true },
     { page = 8, label = "Recruit", icon = "recruit", officer = true },
@@ -118,7 +122,7 @@ end
 local function CreateMain()
     main = Theme.Window("AdventForeverMain", "", SIDEBAR_W + CONTENT_W, 584)
     main.panels = {}
-    for i, page in ipairs({ Effort, Me, Rules, LootTab, Log, BankTab, Options, RecruitTab }) do
+    for i, page in ipairs({ Effort, Me, Rules, LootTab, Log, BankTab, Options, RecruitTab, WishTab, CraftTab, AttuneTab }) do
         local panel = CreateFrame("Frame", nil, main)
         panel:SetPoint("TOPLEFT", SIDEBAR_W, -25)
         panel:SetPoint("BOTTOMRIGHT")
@@ -156,6 +160,9 @@ function UI:ShowLootHistory() self:ShowMain(4) end
 function UI:ShowMe() self:ShowMain(2) end
 function UI:ShowRules() self:ShowMain(3) end
 function UI:ShowRecruit() self:ShowMain(8) end
+function UI:ShowWishlist() self:ShowMain(9) end
+function UI:ShowCrafters() self:ShowMain(10) end
+function UI:ShowAttunements() self:ShowMain(11) end
 
 local function Visible(page) return main and main:IsShown() and page.panel and page.panel:IsShown() end
 
@@ -1064,10 +1071,553 @@ end
 -- Shift-clicking an item while the item box has focus puts the link there.
 if type(ChatEdit_InsertLink) == "function" then
     hooksecurefunc("ChatEdit_InsertLink", function(link)
-        local box = BankTab.itemBox
-        if box and box:IsVisible() and box:HasFocus() and type(link) == "string" then box:SetText(link) end
+        if type(link) ~= "string" then return end
+        for _, box in ipairs({ BankTab.itemBox, WishTab.itemBox, CraftTab.itemBox, AttuneTab.itemBox }) do
+            if box and box:IsVisible() and box:HasFocus() then box:SetText(link) end
+        end
     end)
 end
+
+-------------------------------------------------------------------------------
+--  Wishlist tab: your ranked list; officers can switch to everyone's
+-------------------------------------------------------------------------------
+local WISH_GOLD = "|cffffd155"
+
+local function ItemWidget(width)
+    return function(row)
+        local f = CreateFrame("Frame", nil, row)
+        f:SetSize(width - 8, 20)
+        f.icon = Theme.ItemIcon(f, 18)
+        f.icon:SetPoint("LEFT")
+        f.text = Theme.Text(f, 12)
+        f.text:SetPoint("LEFT", f.icon, "RIGHT", 6, 0)
+        f.text:SetWidth(width - 36)
+        function f:SetID(id)
+            local link = select(2, C_Item.GetItemInfo(id))
+            self.icon:SetItem(link or ("item:" .. id))
+            self.text:SetText(link or ("item " .. id))
+        end
+        return f
+    end
+end
+
+local function SmallButton(row, text, width, onClick)
+    local b = Theme.Button(row, text, width or 20, 18)
+    b:SetScript("OnClick", function() if row.data then onClick(row.data) end end)
+    return b
+end
+
+function WishTab:Build(panel)
+    self.panel = panel
+    self.mode = "mine"
+    local heading = Theme.Text(panel, 12, C.bright)
+    heading:SetPoint("TOPLEFT", 16, -16)
+    heading:SetText("Wishlist")
+    self.info = Theme.Text(panel, 11, C.dim)
+    self.info:SetPoint("TOPLEFT", 16, -36)
+    self.info:SetWidth(448)
+    self.info:SetWordWrap(true)
+
+    -- Officers switch between their own list and everyone's.
+    self.tabs = {}
+    for i, def in ipairs({ { "guild", "Guild" }, { "mine", "Mine" } }) do
+        local b = Theme.Button(panel, def[2], 60, 20)
+        b:SetPoint("TOPRIGHT", -16 - (i - 1) * 64, -12)
+        b:SetScript("OnClick", function()
+            self.mode = def[1]
+            self:Refresh()
+        end)
+        self.tabs[def[1]] = b
+    end
+
+    -- Your list.
+    local mine = CreateFrame("Frame", nil, panel)
+    mine:SetAllPoints()
+    self.mine = mine
+    self.itemBox = Theme.EditBox(mine, 380)
+    self.itemBox:SetPoint("TOPLEFT", 16, -76)
+    self.itemHint = Theme.Text(self.itemBox, 11, C.dim)
+    self.itemHint:SetPoint("LEFT", 8, 0)
+    self.itemHint:SetText("Shift-click an item, or type its ID")
+    self.itemBox:SetScript("OnTextChanged", function(box) self.itemHint:SetShown(box:GetText() == "") end)
+    local function Add()
+        local rank, err = AF.Wishlist:Add(self.itemBox:GetText())
+        if not rank then return AF:Print(err) end
+        self.itemBox:SetText("")
+        self.itemBox:ClearFocus()
+    end
+    self.itemBox:SetScript("OnEnterPressed", Add)
+    local add = Theme.Button(mine, "Add", 54)
+    add:SetPoint("TOPRIGHT", -16, -76)
+    add:SetScript("OnClick", Add)
+
+    self.myList = Theme.List(mine, {
+        left = 14, top = -112, rows = 10, rowHeight = 26,
+        emptyText = "Nothing on your wishlist yet.",
+        columns = {
+            { key = "rank", label = "#", width = 30, justify = "CENTER" },
+            { key = "item", label = "Item", width = 316, widget = ItemWidget(316) },
+            { key = "up", label = "", width = 30, justify = "RIGHT", widget = function(row)
+                return SmallButton(row, "^", 22, function(d) AF.Wishlist:Move(d.id, -1) end)
+            end },
+            { key = "down", label = "", width = 30, justify = "RIGHT", widget = function(row)
+                return SmallButton(row, "v", 22, function(d) AF.Wishlist:Move(d.id, 1) end)
+            end },
+            { key = "remove", label = "", width = 34, justify = "RIGHT", widget = function(row)
+                return SmallButton(row, "x", 22, function(d) AF.Wishlist:Remove(d.id) end)
+            end },
+        },
+        render = function(row, d)
+            row.cells.rank:SetText(WISH_GOLD .. d.rank .. "|r")
+            row.cells.item:SetID(d.id)
+            row.cells.up:SetEnabled(d.rank > 1)
+            row.cells.up:SetAlpha(d.rank > 1 and 1 or 0.35)
+            row.cells.down:SetEnabled(d.rank < d.count)
+            row.cells.down:SetAlpha(d.rank < d.count and 1 or 0.35)
+        end,
+        onRowEnter = function(row, d)
+            GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink("item:" .. d.id)
+            GameTooltip:Show()
+        end,
+    })
+
+    -- Everyone's lists, by item (officers).
+    local guild = CreateFrame("Frame", nil, panel)
+    guild:SetAllPoints()
+    self.guild = guild
+    self.guildList = Theme.List(guild, {
+        left = 14, top = -76, rows = 17, rowHeight = 26,
+        emptyText = "No wishlists received yet. They arrive as players log in.",
+        columns = {
+            { key = "item", label = "Item", width = 210, widget = ItemWidget(210) },
+            { key = "count", label = "Players", width = 50, justify = "RIGHT" },
+            { key = "who", label = "Wanted by", width = 180 },
+        },
+        render = function(row, d)
+            row.cells.item:SetID(d.id)
+            row.cells.count:SetText(#d.wishers)
+            local names = {}
+            for _, w in ipairs(d.wishers) do
+                table.insert(names, ("%s %s#%d|r"):format(AF:ShortName(w.name), WISH_GOLD, w.rank))
+            end
+            row.cells.who:SetText(table.concat(names, ", "))
+            row.cells.who:SetWordWrap(false)
+        end,
+        onRowEnter = function(row, d)
+            GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(select(2, C_Item.GetItemInfo(d.id)) or ("item " .. d.id))
+            for _, w in ipairs(d.wishers) do
+                local member = AF.Standings:Get(w.name)
+                local r, g, b = ClassColor(ClassOf(w.name, member))
+                GameTooltip:AddDoubleLine(AF:ShortName(w.name), ("#%d%s"):format(w.rank,
+                    member and ("  ·  effort " .. member.effort) or ""), r, g, b, 1, 0.82, 0.33)
+            end
+            GameTooltip:Show()
+        end,
+    })
+end
+
+function WishTab:Refresh()
+    if not self.panel then return end
+    local officer = AF.Ledger:CanRecord()
+    if not officer then self.mode = "mine" end
+    for key, b in pairs(self.tabs) do
+        b:SetShown(officer)
+        if key == self.mode then
+            b:SetBackdropBorderColor(Theme.Accent())
+            b.label:SetTextColor(unpack(C.bright))
+        else
+            b:SetBackdropBorderColor(unpack(C.buttonBorder))
+            b.label:SetTextColor(unpack(C.dim))
+        end
+    end
+    self.mine:SetShown(self.mode == "mine")
+    self.guild:SetShown(self.mode == "guild")
+
+    if self.mode == "guild" then
+        self.info:SetText(("Lists from %d players. Hover an item to see everyone who wants it, with their effort."):format(
+            AF.Wishlist:ListCount()))
+        self.guildList:SetData(AF.Wishlist:ByItem())
+        return
+    end
+    self.info:SetText(("Rank up to %d items you want, most wanted first. Only officers see your list; they see it when the item drops, and the loot popup tells you when one of yours is up."):format(
+        AF.Wishlist.MAX))
+    local data, mine = {}, AF.Wishlist:Mine()
+    for rank, id in ipairs(mine) do table.insert(data, { id = id, rank = rank, count = #mine }) end
+    self.myList:SetData(data)
+end
+
+AF:On("WISHLIST_UPDATED", function()
+    if Visible(WishTab) then WishTab:Refresh() end
+end)
+
+-- Item names arrive from the server a moment after we first ask.
+local itemInfoPending
+AF:RegisterEvent("GET_ITEM_INFO_RECEIVED", function()
+    if itemInfoPending or not (Visible(WishTab) or Visible(CraftTab)) then return end
+    itemInfoPending = true
+    C_Timer.After(0.3, function()
+        itemInfoPending = false
+        if Visible(WishTab) then WishTab:Refresh() end
+        if Visible(CraftTab) then CraftTab:Refresh() end
+    end)
+end)
+
+-------------------------------------------------------------------------------
+--  Crafters tab: search who can make something; without a search, everyone's
+--  professions
+-------------------------------------------------------------------------------
+local ONLINE_GREEN = "|cff4fe0a6"
+
+-- An item or spell (id < 0) with its icon and name.
+local function RecipeWidget(width)
+    return function(row)
+        local f = CreateFrame("Frame", nil, row)
+        f:SetSize(width - 8, 20)
+        f.icon = Theme.ItemIcon(f, 18)
+        f.icon:SetPoint("LEFT")
+        f.text = Theme.Text(f, 12)
+        f.text:SetPoint("LEFT", f.icon, "RIGHT", 6, 0)
+        f.text:SetWidth(width - 36)
+        function f:SetID(id, name)
+            if id > 0 then
+                local link = select(2, C_Item.GetItemInfo(id))
+                self.icon:SetItem(link or ("item:" .. id))
+                self.text:SetText(link or name or ("item " .. id))
+            else
+                self.icon.link = "spell:" .. -id
+                local texture = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(-id))
+                    or (GetSpellTexture and GetSpellTexture(-id)) or 134400
+                self.icon.icon:SetTexture(texture)
+                self.icon:SetBackdropBorderColor(unpack(C.line))
+                self.icon:Show()
+                self.text:SetText("|cff71d5ff" .. (name or ("spell " .. -id)) .. "|r")
+            end
+        end
+        return f
+    end
+end
+
+local function CrafterNames(crafters, limit)
+    local names = {}
+    for i, c in ipairs(crafters) do
+        if limit and i > limit then
+            table.insert(names, ("+%d"):format(#crafters - limit))
+            break
+        end
+        table.insert(names, c.online and (ONLINE_GREEN .. AF:ShortName(c.name) .. "|r") or AF:ShortName(c.name))
+    end
+    return table.concat(names, ", ")
+end
+
+function CraftTab:Build(panel)
+    self.panel = panel
+    local heading = Theme.Text(panel, 12, C.bright)
+    heading:SetPoint("TOPLEFT", 16, -16)
+    heading:SetText("Crafters")
+    self.info = Theme.Text(panel, 11, C.dim)
+    self.info:SetPoint("TOPLEFT", 16, -36)
+    self.info:SetWidth(448)
+    self.info:SetWordWrap(true)
+
+    self.search = Theme.EditBox(panel, 448)
+    self.search:SetPoint("TOPLEFT", 16, -64)
+    self.searchHint = Theme.Text(self.search, 11, C.dim)
+    self.searchHint:SetPoint("LEFT", 8, 0)
+    self.searchHint:SetText("Search an item or enchant, or shift-click an item")
+    self.search:SetScript("OnTextChanged", function(box)
+        self.searchHint:SetShown(box:GetText() == "")
+        self:Refresh()
+    end)
+    self.search:SetScript("OnEnterPressed", self.search.ClearFocus)
+    self.itemBox = self.search      -- shift-click puts the link here (the ChatEdit_InsertLink hook)
+
+    -- Search results.
+    local results = CreateFrame("Frame", nil, panel)
+    results:SetAllPoints()
+    self.results = results
+    self.resultList = Theme.List(results, {
+        left = 14, top = -98, rows = 17, rowHeight = 26,
+        emptyText = "Nobody in the guild has that recipe (that we know of).",
+        columns = {
+            { key = "item", label = "Item", width = 230, widget = RecipeWidget(230) },
+            { key = "who", label = "Crafters (online in green)", width = 218 },
+        },
+        render = function(row, d)
+            row.cells.item:SetID(d.id, d.name)
+            row.cells.who:SetText(CrafterNames(d.crafters, 3))
+            row.cells.who:SetWordWrap(false)
+        end,
+        onRowEnter = function(row, d)
+            GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(d.name or "?")
+            for _, c in ipairs(d.crafters) do
+                local member = AF.Standings:All()[c.name]
+                local r, g, b = ClassColor(member and member.classFile)
+                GameTooltip:AddDoubleLine(AF:ShortName(c.name), c.online and "online" or c.prof, r, g, b,
+                    c.online and 0.31 or 0.6, c.online and 0.88 or 0.6, c.online and 0.65 or 0.62)
+            end
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Click to whisper the first online crafter.", 0.55, 0.55, 0.57)
+            GameTooltip:Show()
+        end,
+        onRowClick = function(d)
+            for _, c in ipairs(d.crafters) do
+                if c.online and c.name ~= AF.playerName then
+                    if ChatFrame_SendTell then ChatFrame_SendTell(c.name) end
+                    return
+                end
+            end
+            AF:Print("None of them is online.")
+        end,
+    })
+
+    -- Everyone's professions.
+    local players = CreateFrame("Frame", nil, panel)
+    players:SetAllPoints()
+    self.players = players
+    self.playerList = Theme.List(players, {
+        left = 14, top = -98, rows = 17, rowHeight = 26,
+        emptyText = "No professions yet. They're shared as players log in and open their profession windows.",
+        columns = {
+            { key = "prof", label = "Profession", width = 130 },
+            { key = "name", label = "Player", width = 180 },
+            { key = "skill", label = "Skill", width = 76, justify = "RIGHT" },
+            { key = "n", label = "Recipes", width = 62, justify = "RIGHT" },
+        },
+        render = function(row, d)
+            row.cells.prof:SetText(d.prof)
+            row.cells.prof:SetTextColor(unpack(C.dim))
+            local member = AF.Standings:All()[d.name]
+            row.cells.name:SetText(AF:ShortName(d.name))
+            row.cells.name:SetTextColor(ClassColor(member and member.classFile))
+            row.cells.skill:SetText(d.r > 0 and (d.m > 0 and ("%d / %d"):format(d.r, d.m) or d.r) or "-")
+            row.cells.n:SetText(d.n > 0 and d.n or "-")
+        end,
+        onRowEnter = function(row, d)
+            GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(AF:ShortName(d.name))
+            GameTooltip:AddLine(d.online and "Online" or "Offline", 0.8, 0.8, 0.8)
+            if d.n == 0 then
+                GameTooltip:AddLine("No recipes known yet: they open their profession window to share them.", 0.6, 0.6, 0.62, true)
+            end
+            GameTooltip:Show()
+        end,
+    })
+end
+
+function CraftTab:Refresh()
+    if not self.panel then return end
+    local text = self.search:GetText()
+    -- A shift-clicked link searches by its name.
+    local linked = text:match("|h%[(.-)%]|h")
+    if linked then text = linked end
+    text = text:match("^%s*(.-)%s*$")
+    local searching = #text >= 2
+    self.results:SetShown(searching)
+    self.players:SetShown(not searching)
+    if searching then
+        local found = AF.Professions:Search(text)
+        self.info:SetText(("%d match%s for \"%s\"."):format(#found, #found == 1 and "" or "es", text))
+        self.resultList:SetData(found)
+    else
+        local rows = AF.Professions:Players()
+        local people = {}
+        for _, r in ipairs(rows) do people[r.name] = true end
+        local n = 0
+        for _ in pairs(people) do n = n + 1 end
+        self.info:SetText(("Professions of %d guild members. Your recipes are shared when you open your profession windows."):format(n))
+        self.playerList:SetData(rows)
+    end
+end
+
+function UI:SearchCrafters(text)
+    if CraftTab.search then CraftTab.search:SetText(text) end
+end
+
+AF:On("PROFESSIONS_UPDATED", function()
+    if Visible(CraftTab) then CraftTab:Refresh() end
+end)
+
+-------------------------------------------------------------------------------
+--  Attunements tab: everyone's attunements as a grid; officers edit the columns
+-------------------------------------------------------------------------------
+-- A small square: filled = attuned, outlined = not, faint dot = unknown.
+local function StatusWidget(row)
+    local f = CreateFrame("Frame", nil, row, "BackdropTemplate")
+    f:SetSize(12, 12)
+    Theme.Backdrop(f, C.input, C.line)
+    f.fill = f:CreateTexture(nil, "ARTWORK")
+    f.fill:SetPoint("TOPLEFT", 2, -2)
+    f.fill:SetPoint("BOTTOMRIGHT", -2, 2)
+    Theme.Accented(f.fill)
+    f.unknown = Theme.Text(f, 11, C.faint)
+    f.unknown:SetPoint("CENTER", 0, 1)
+    f.unknown:SetText("?")
+    function f:SetStatus(done)
+        self:SetShown(true)
+        self.fill:SetShown(done == true)
+        self.unknown:SetShown(done == nil)
+        self:SetBackdropBorderColor(unpack(done == nil and C.track or (done and C.border or C.line)))
+    end
+    return f
+end
+
+function AttuneTab:Build(panel)
+    self.panel = panel
+    local heading = Theme.Text(panel, 12, C.bright)
+    heading:SetPoint("TOPLEFT", 16, -16)
+    heading:SetText("Attunements")
+    self.info = Theme.Text(panel, 11, C.dim)
+    self.info:SetPoint("TOPLEFT", 16, -36)
+    self.info:SetWidth(448)
+    self.info:SetWordWrap(true)
+
+    local columns = { { key = "name", label = "Player", width = 168 } }
+    for i = 1, AF.Attunements.MAX do
+        table.insert(columns, { key = "a" .. i, label = "", width = 35, widget = StatusWidget })
+    end
+    self.list = Theme.List(panel, {
+        left = 14, top = -72, rows = 15, rowHeight = 24,
+        emptyText = "Nothing yet. Attunements are shared as players log in.",
+        columns = columns,
+        render = function(row, name)
+            local member = AF.Standings:All()[name]
+            row.cells.name:SetText(AF:ShortName(name))
+            row.cells.name:SetTextColor(ClassColor(member and member.classFile))
+            for i = 1, AF.Attunements.MAX do
+                local a = self.defs[i]
+                local cell = row.cells["a" .. i]
+                if a then cell:SetStatus(AF.Attunements:Status(name, a.key)) else cell:Hide() end
+            end
+        end,
+        onRowEnter = function(row, name)
+            GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(AF:ShortName(name))
+            for _, a in ipairs(self.defs) do
+                local done = AF.Attunements:Status(name, a.key)
+                local text, r, g, b = "not yet", 1, 0.33, 0.33
+                if done then
+                    text, r, g, b = "attuned", 0.31, 0.88, 0.65
+                elseif done == nil then
+                    text, r, g, b = "unknown", 0.55, 0.55, 0.57
+                end
+                GameTooltip:AddDoubleLine(a.n, text, 0.85, 0.85, 0.85, r, g, b)
+            end
+            GameTooltip:Show()
+        end,
+    })
+    -- Column headers: the short label; hover for the full name and how many are
+    -- attuned; officers click to remove.
+    for i = 1, AF.Attunements.MAX do
+        local header = self.list.headers["a" .. i]
+        header:SetScript("OnEnter", function(h)
+            local a = self.defs[i]
+            if not a then return end
+            local done = 0
+            for _, name in ipairs(self.names or {}) do
+                if AF.Attunements:Status(name, a.key) then done = done + 1 end
+            end
+            GameTooltip:SetOwner(h, "ANCHOR_TOP")
+            GameTooltip:AddLine(a.n)
+            GameTooltip:AddLine(("%d of %d attuned"):format(done, #(self.names or {})), 0.8, 0.8, 0.8)
+            local need = {}
+            for _, q in ipairs(a.q or {}) do table.insert(need, "quest " .. q) end
+            if a.i then table.insert(need, select(2, C_Item.GetItemInfo(a.i)) or ("item " .. a.i)) end
+            GameTooltip:AddLine("Done with: " .. table.concat(need, " or "), 0.6, 0.6, 0.62, true)
+            if AF.Config:CanEdit() then GameTooltip:AddLine("Click to remove it (officers).", 0.55, 0.55, 0.57) end
+            GameTooltip:Show()
+        end)
+        header:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        header:SetScript("OnClick", function()
+            local a = self.defs[i]
+            if a and AF.Config:CanEdit() then StaticPopup_Show("ADVENTFOREVER_ATTUNE_REMOVE", a.n, nil, a.key) end
+        end)
+    end
+
+    -- Officers: add an attunement.
+    local y = 30
+    self.nameBox = Theme.EditBox(panel, 140)
+    self.nameBox:SetPoint("BOTTOMLEFT", 16, y)
+    self.shortBox = Theme.EditBox(panel, 52)
+    self.shortBox:SetPoint("LEFT", self.nameBox, "RIGHT", 6, 0)
+    self.shortBox:SetMaxLetters(5)
+    self.reqBox = Theme.EditBox(panel, 176)
+    self.reqBox:SetPoint("LEFT", self.shortBox, "RIGHT", 6, 0)
+    self.itemBox = self.reqBox      -- shift-click puts a key item here
+    local hints = {}
+    for box, text in pairs({ [self.nameBox] = "Name", [self.shortBox] = "Label", [self.reqBox] = "Quest IDs or key item" }) do
+        local hint = Theme.Text(box, 11, C.dim)
+        hint:SetPoint("LEFT", 8, 0)
+        hint:SetText(text)
+        hints[box] = hint
+        box:SetScript("OnTextChanged", function(b) hint:SetShown(b:GetText() == "") end)
+    end
+    self.addButton = Theme.Button(panel, "Add", 50)
+    self.addButton:SetPoint("BOTTOMRIGHT", -16, y)
+    self.addButton:SetScript("OnClick", function()
+        local ok, err = AF.Attunements:Add(self.nameBox:GetText(), self.shortBox:GetText(), self.reqBox:GetText())
+        if not ok then return AF:Print(err) end
+        for _, box in ipairs({ self.nameBox, self.shortBox, self.reqBox }) do
+            box:SetText("")
+            box:ClearFocus()
+        end
+    end)
+    self.restore = Theme.Button(panel, "Restore classic ones", 150, 20)
+    self.restore:SetPoint("BOTTOMLEFT", 16, 6)
+    self.restore:SetScript("OnClick", function() AF.Attunements:RestoreBuiltIn() end)
+    self.editors = { self.nameBox, self.shortBox, self.reqBox, self.addButton }
+end
+
+function AttuneTab:Refresh()
+    if not self.panel then return end
+    self.defs = AF.Attunements:List()
+    for i = 1, AF.Attunements.MAX do
+        local a = self.defs[i]
+        self.list.headers["a" .. i].label:SetText(a and a.s or "")
+    end
+    local names = AF.Attunements:Players()
+    local counts = {}
+    for _, name in ipairs(names) do
+        local n = 0
+        for _, a in ipairs(self.defs) do
+            if AF.Attunements:Status(name, a.key) then n = n + 1 end
+        end
+        counts[name] = n
+    end
+    table.sort(names, function(a, b)
+        if counts[a] ~= counts[b] then return counts[a] > counts[b] end
+        return a < b
+    end)
+    self.names = names
+    self.list:SetData(names)
+
+    local canEdit = AF.Config:CanEdit()
+    for _, region in ipairs(self.editors) do region:SetShown(canEdit) end
+    self.restore:SetShown(canEdit and AF.Attunements:HiddenCount() > 0)
+    self.info:SetText(canEdit
+        and "Filled square = attuned. Hover a column for details, click it to remove it. Add new ones below: quest IDs that finish it, or its key item."
+        or "Filled square = attuned, ? = not known yet. Hover a column for what it takes, or a player for their details.")
+end
+
+AF:On("ATTUNEMENTS_UPDATED", function()
+    if Visible(AttuneTab) then AttuneTab:Refresh() end
+end)
+
+StaticPopupDialogs.ADVENTFOREVER_ATTUNE_REMOVE = {
+    text = "Remove the %s attunement for the whole guild?",
+    button1 = REMOVE,
+    button2 = CANCEL,
+    OnAccept = function(_, key)
+        local ok, err = AF.Attunements:Remove(key)
+        if not ok then AF:Print(err) end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
 
 -------------------------------------------------------------------------------
 --  Options tab
@@ -1295,7 +1845,8 @@ local function CreateLoot()
             row.cells.won:SetTextColor(unpack(Theme.ROLE.os[1]))
             local session = select(2, AF.Loot:Sessions())[selectedSid]
             row.cells.equipped:Set(c.equipped, session and session.link, c.response ~= nil)
-            row.cells.note:SetText(c.note or "")
+            local wish = c.wish and ("|cffffd155wish #%d|r"):format(c.wish) or nil
+            row.cells.note:SetText(wish and c.note and (wish .. "  " .. c.note) or wish or c.note or "")
             row.cells.note:SetTextColor(unpack(C.dim))
 
             -- Votes: the count on a button; our own vote gets the accent border.
@@ -1317,10 +1868,11 @@ local function CreateLoot()
         end,
         onRowEnter = function(row, c)
             EffortTooltip(row, c.name, c.member)
-            if c.note then
-                GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("Note: " .. c.note, 1, 0.9, 0.6, true)
+            if c.wish or c.note then GameTooltip:AddLine(" ") end
+            if c.wish then
+                GameTooltip:AddLine(("#%d on their wishlist"):format(c.wish), 1, 0.82, 0.33)
             end
+            if c.note then GameTooltip:AddLine("Note: " .. c.note, 1, 0.9, 0.6, true) end
             if #c.won > 0 then
                 GameTooltip:AddLine(" ")
                 GameTooltip:AddLine("Won this raid week", 1, 1, 1)
@@ -1439,6 +1991,8 @@ local function CreatePopup()
     function popup:UpdateInfo()
         local me = AF.Standings:Get(AF.playerName)
         local parts = {}
+        local wish = AF.Wishlist:MyRank(self.entry.link)
+        if wish then table.insert(parts, ("|cffffd155On your wishlist (#%d)|r"):format(wish)) end
         if me then table.insert(parts, "Your effort " .. me.effort) end
         local waiting = #AF.Loot:Incoming()
         if waiting > 1 then table.insert(parts, "1 of " .. waiting) end
@@ -1457,6 +2011,9 @@ function UI:ShowPopup()
     if popup.shownEntry ~= entry then      -- a new item: a fresh note
         popup.shownEntry = entry
         popup.note:SetText("")
+        if AF.Wishlist:MyRank(entry.link) and SOUNDKIT and SOUNDKIT.RAID_WARNING then
+            pcall(PlaySound, SOUNDKIT.RAID_WARNING, "Master")    -- one of your wishlist items
+        end
     end
 
     popup.icon:SetItem(entry.link)
@@ -1692,6 +2249,138 @@ end
 AF:On("TRADES_UPDATED", RefreshTrades)
 
 -------------------------------------------------------------------------------
+--  Versions window: who runs which version, and whether they're ready to pull
+-------------------------------------------------------------------------------
+local versionsWin
+local GREEN, ORANGE, RED = Theme.ROLE.ms[1], Theme.ROLE.os[1], { 1, 0.333, 0.333 }
+
+local function Colored(text, color)
+    return ("|cff%02x%02x%02x%s|r"):format(color[1] * 255, color[2] * 255, color[3] * 255, text)
+end
+
+local function VersionCell(row)
+    local V = AF.Versions
+    if row.state == "offline" then return Colored("offline", C.dim) end
+    if row.state == "waiting" then return Colored("...", C.dim) end
+    if row.state == "missing" then return Colored("not installed", RED) end
+    return Colored(V.String(row.v), row.state == "outdated" and ORANGE or GREEN)
+end
+
+local function RepairCell(r)
+    if not r or not r.d then return Colored("-", C.faint) end
+    local color = r.d < 50 and RED or (r.d < 80 and ORANGE or GREEN)
+    return Colored(r.d .. "%", color)
+end
+
+local function ConsumableCell(r)
+    if not r then return Colored("-", C.faint) end
+    if r.f then return Colored("Flask", GREEN) end
+    local n = #r.e
+    if n == 0 then return Colored("none", RED) end
+    return Colored(("%d elixir%s"):format(n, n == 1 and "" or "s"), n >= 2 and GREEN or ORANGE)
+end
+
+local function RangeCell(range)
+    if range == nil then return Colored("-", C.faint) end
+    return range and Colored("yes", GREEN) or Colored("far", RED)
+end
+
+local function RefreshVersions()
+    if not versionsWin or not versionsWin:IsShown() then return end
+    local rows = AF.Versions:Rows()
+    versionsWin.list:SetData(rows)
+    local count = {}
+    for _, row in ipairs(rows) do count[row.state] = (count[row.state] or 0) + 1 end
+    if not IsInGroup() then
+        versionsWin.status:SetText("You are not in a group.")
+    elseif AF.Versions:Waiting() then
+        versionsWin.status:SetText("Asking the group...")
+    else
+        versionsWin.status:SetText(("Current version %s  ·  %d outdated  ·  %d without the addon"):format(
+            AF.Versions.String(AF.Versions.Newest()), count.outdated or 0, count.missing or 0))
+    end
+    versionsWin.remind:SetShown(AF.Ledger:CanRecord() and ((count.outdated or 0) + (count.missing or 0)) > 0)
+end
+
+local function CreateVersions()
+    versionsWin = Theme.Window("AdventForeverVersions", "Versions & readiness", 500, 384, 40)
+    versionsWin.list = Theme.List(versionsWin, {
+        left = 12, top = -32, rows = 12, rowHeight = 24,
+        emptyText = "Join a group to check it.",
+        columns = {
+            { key = "name", label = "Player", width = 160 },
+            { key = "version", label = "Version", width = 96 },
+            { key = "repair", label = "Repair", width = 64, justify = "RIGHT" },
+            { key = "cons", label = "Flask / elixirs", width = 100, justify = "RIGHT" },
+            { key = "range", label = "In range", width = 56, justify = "RIGHT" },
+        },
+        render = function(row, r)
+            row.cells.name:SetText(AF:ShortName(r.name))
+            row.cells.name:SetTextColor(ClassColor(r.class))
+            row.cells.version:SetText(VersionCell(r))
+            row.cells.repair:SetText(RepairCell(r.r))
+            row.cells.cons:SetText(ConsumableCell(r.r))
+            row.cells.range:SetText(RangeCell(r.range))
+        end,
+        onRowEnter = function(row, r)
+            GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(AF:ShortName(r.name), ClassColor(r.class))
+            if r.state == "missing" then
+                GameTooltip:AddLine("No answer: the addon isn't installed or is turned off.", 0.8, 0.8, 0.8, true)
+            elseif r.state == "outdated" then
+                GameTooltip:AddLine(("Running %s; %s is out."):format(AF.Versions.String(r.v),
+                    AF.Versions.String(AF.Versions.Newest())), 0.8, 0.8, 0.8, true)
+            end
+            local rd = r.r
+            if rd then
+                if rd.d then
+                    GameTooltip:AddLine(("Repair %d%%, lowest item %d%%"):format(rd.d, rd.low or rd.d), 0.8, 0.8, 0.8)
+                end
+                if rd.f then GameTooltip:AddLine(rd.f, GREEN[1], GREEN[2], GREEN[3]) end
+                for _, name in ipairs(rd.e) do GameTooltip:AddLine(name, GREEN[1], GREEN[2], GREEN[3]) end
+                if not rd.f and #rd.e == 0 then GameTooltip:AddLine("No flask or elixir up.", 0.8, 0.8, 0.8) end
+            elseif r.v and r.state ~= "waiting" then
+                GameTooltip:AddLine("Their version doesn't report durability or buffs.", 0.6, 0.6, 0.62, true)
+            end
+            GameTooltip:Show()
+        end,
+    })
+    versionsWin.status = Theme.Text(versionsWin, 11, C.dim)
+    versionsWin.status:SetPoint("BOTTOMLEFT", 14, 14)
+
+    local ask = Theme.Button(versionsWin, "Ask again", 84, 22)
+    ask:SetPoint("BOTTOMRIGHT", -12, 10)
+    ask:SetScript("OnClick", function() AF.Versions:Query() end)
+    versionsWin.remind = Theme.Button(versionsWin, "Remind", 72, 22)
+    versionsWin.remind:SetPoint("RIGHT", ask, "LEFT", -6, 0)
+    versionsWin.remind:SetScript("OnClick", function() AF.Versions:Remind() end)
+    versionsWin.remind:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Remind")
+        GameTooltip:AddLine("Whispers every guild member here who is outdated or hasn't got the addon.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    versionsWin.remind:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local elapsed = 0
+    versionsWin:SetScript("OnUpdate", function(_, dt)    -- range changes as people move
+        elapsed = elapsed + dt
+        if elapsed < 1 then return end
+        elapsed = 0
+        RefreshVersions()
+    end)
+end
+
+function UI:ShowVersions()
+    if not versionsWin then CreateVersions() end
+    versionsWin:Show()
+    AF.Versions:Query()
+    RefreshVersions()
+end
+
+AF:On("VERSIONS_UPDATED", RefreshVersions)
+
+-------------------------------------------------------------------------------
 --  Login nudge: a short summary card about a minute after logging in
 -------------------------------------------------------------------------------
 local NUDGE_DELAY = 55      -- seconds after login: the ledger sync / a snapshot has landed by then
@@ -1758,65 +2447,108 @@ local function NudgeLines()
     return lines
 end
 
-local function CreateNudge()
-    nudge = CreateFrame("Button", "AdventForeverNudge", UIParent, "BackdropTemplate")
-    nudge:SetSize(380, 40)
-    nudge:SetPoint("TOP", UIParent, "TOP", 0, -120)
-    nudge:SetFrameStrata("HIGH")
-    Theme.Backdrop(nudge, C.bg)
-    local stripe = nudge:CreateTexture(nil, "ARTWORK")
+-- Cards stack down from the top of the screen in the order they were shown.
+local cards = {}
+
+local function StackCards()
+    local y = -120
+    for _, card in ipairs(cards) do
+        if card:IsShown() then
+            card:ClearAllPoints()
+            card:SetPoint("TOP", UIParent, "TOP", 0, y)
+            y = y - card:GetHeight() - 8
+        end
+    end
+end
+
+-- A summary card: accent stripe, title, wrapped body and a close button. It
+-- fades out `shown` seconds after it appears unless hovered; clicking it hides
+-- it and runs onClick.
+local function CreateCard(name, title, shown, onClick)
+    local card = CreateFrame("Button", name, UIParent, "BackdropTemplate")
+    card:SetSize(380, 40)
+    card:SetFrameStrata("HIGH")
+    Theme.Backdrop(card, C.bg)
+    local stripe = card:CreateTexture(nil, "ARTWORK")
     stripe:SetPoint("TOPLEFT", 1, -1)
     stripe:SetPoint("BOTTOMLEFT", 1, 1)
     stripe:SetWidth(3)
     Theme.Accented(stripe)
-    nudge.title = Theme.Text(nudge, 12, C.bright)
-    nudge.title:SetPoint("TOPLEFT", 14, -10)
-    nudge.title:SetText("AdventForever")
-    nudge.body = Theme.Text(nudge, 12)
-    nudge.body:SetPoint("TOPLEFT", 14, -30)
-    nudge.body:SetWidth(352)
-    nudge.body:SetWordWrap(true)
-    nudge.body:SetJustifyV("TOP")
-    local close = CreateFrame("Button", nil, nudge)
+    card.title = Theme.Text(card, 12, C.bright)
+    card.title:SetPoint("TOPLEFT", 14, -10)
+    card.title:SetText(title)
+    card.body = Theme.Text(card, 12)
+    card.body:SetPoint("TOPLEFT", 14, -30)
+    card.body:SetWidth(352)
+    card.body:SetWordWrap(true)
+    card.body:SetJustifyV("TOP")
+    local close = CreateFrame("Button", nil, card)
     close:SetSize(20, 20)
     close:SetPoint("TOPRIGHT", -4, -4)
     close.glyph = Theme.Text(close, 13, C.dim)
     close.glyph:SetPoint("CENTER")
     close.glyph:SetText("x")
-    close:SetScript("OnClick", function() nudge:Hide() end)
-    nudge:SetScript("OnClick", function()
-        nudge:Hide()
-        UI:ShowMe()
+    close:SetScript("OnClick", function() card:Hide() end)
+    card:SetScript("OnClick", function()
+        card:Hide()
+        if onClick then onClick() end
     end)
-    nudge:SetScript("OnEnter", function()
-        nudge.hovered = true
-        nudge:SetAlpha(1)
+    card:SetScript("OnEnter", function()
+        card.hovered = true
+        card:SetAlpha(1)
     end)
-    nudge:SetScript("OnLeave", function() nudge.hovered = false end)
-    nudge:SetScript("OnUpdate", function(self, dt)
+    card:SetScript("OnLeave", function() card.hovered = false end)
+    card:SetScript("OnUpdate", function(self, dt)
         if self.hovered then self.age = 0 return end
         self.age = (self.age or 0) + dt
-        if self.age > NUDGE_SHOWN then
-            local alpha = 1 - (self.age - NUDGE_SHOWN) / 2
+        if self.age > shown then
+            local alpha = 1 - (self.age - shown) / 2
             if alpha <= 0 then return self:Hide() end
             self:SetAlpha(alpha)
         end
     end)
-    nudge:Hide()
+    card:SetScript("OnHide", StackCards)
+    card:Hide()
+
+    function card:Present(text)
+        self.body:SetText(text)
+        self:SetHeight(44 + self.body:GetStringHeight())
+        self.age, self.hovered = 0, false
+        self:SetAlpha(1)
+        for i, c in ipairs(cards) do
+            if c == self then table.remove(cards, i) break end
+        end
+        table.insert(cards, self)
+        self:Show()
+        StackCards()
+    end
+    return card
 end
 
 -- Shows the card now (also /af nudge). Returns false if there's nothing to show.
 function UI:ShowNudge()
     local lines = NudgeLines()
     if not lines then return false end
-    if not nudge then CreateNudge() end
-    nudge.body:SetText(table.concat(lines, "\n"))
-    nudge:SetHeight(44 + nudge.body:GetStringHeight())
-    nudge.age, nudge.hovered = 0, false
-    nudge:SetAlpha(1)
-    nudge:Show()
+    if not nudge then nudge = CreateCard("AdventForeverNudge", "AdventForever", NUDGE_SHOWN, function() UI:ShowMe() end) end
+    nudge:Present(table.concat(lines, "\n"))
     return true
 end
+
+-------------------------------------------------------------------------------
+--  Update card: a newer version is out (once per session)
+-------------------------------------------------------------------------------
+local UPDATE_SHOWN = 30
+local updateCard, updateShown
+
+AF:On("NEWER_VERSION", function(version)
+    if updateShown then return end
+    updateShown = true
+    AF:WhenUnrestricted(function()
+        if not updateCard then updateCard = CreateCard("AdventForeverUpdate", "AdventForever update", UPDATE_SHOWN) end
+        updateCard:Present(("Version %s%s|r is out; you have %s. Update through WowUp, CurseForge or Wago, then restart the game."):format(
+            AccentHex(), AF.Versions.String(version), AF.VERSION_STRING))
+    end)
+end)
 
 function UI:Enable()
     C_Timer.After(NUDGE_DELAY, function()
