@@ -282,6 +282,9 @@ function AF:Debug()
     self:Printf("You: %s | realm: %s / %s", tostring(self.playerName), tostring(GetNormalizedRealmName()), tostring(GetRealmName()))
     self:Printf("Guild rank: %s (index %s) | GM: %s | officer ranks 0-%d",
         tostring(rankName), tostring(rankIndex), tostring(self:IsGM()), self.Config:Get("officerRank"))
+    local guildRaid, canRoll, rollLines = self.GuildLoot.Status()
+    self:Printf("Guild loot: guild raid now: %s | can roll by addon: %s | roll lines understood: %d of 3",
+        guildRaid and "yes" or "no", canRoll and "yes" or "NO", rollLines)
     local recruitRole, channelState, canJoin, canInvite = self.Recruit.Status()
     self:Printf("Recruiting: role %s | channel %s | can join channels: %s | guild invite function: %s",
         recruitRole, channelState, canJoin and "yes" or "NO", canInvite and "yes" or "NO")

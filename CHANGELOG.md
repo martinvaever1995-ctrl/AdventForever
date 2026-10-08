@@ -72,6 +72,10 @@ decides who gets an item: officers do.
 
   Opening the trade puts the item in for you. Delivery is tracked, and the officers see it in
   the loot window.
+- **Guild loot in raids:** in a guild raid (75% guild members), raiders automatically pass on
+  Rare and better items, and the raid leader automatically needs. Items the raid leader receives
+  start loot sessions by themselves. Officers get a warning in chat if anyone else rolls on, or
+  wins, such an item.
 - **Loot history** (officers, Loot tab): who won what over the last 4 or 8 weeks, by item or
   by player.
 

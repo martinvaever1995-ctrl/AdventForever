@@ -18,6 +18,7 @@ Alts.lua
 Dungeons.lua
 Recruit.lua
 Trade.lua
+GuildLoot.lua
 Loot.lua
 Theme.lua
 UI.lua
