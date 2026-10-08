@@ -8,3 +8,8 @@ ignore:
   - .gitattributes
   - .pkgmeta
   - README.md
+
+# Release notes (GitHub, Wago, WowUp) come from our own changelog, not the commit list.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
