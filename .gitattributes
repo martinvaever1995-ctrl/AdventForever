@@ -1,0 +1,5 @@
+# Keep line endings as they are, and never touch the bytes of fonts and images.
+* text=auto eol=lf
+*.tga binary
+*.ttf binary
+*.png binary

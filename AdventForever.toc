@@ -1,0 +1,23 @@
+## Interface: 16001
+## Title: AdventForever
+## Notes: Guild effort scores (raids, guild bank, honor) shown to officers at loot time.
+## Version: 2.0.0
+## IconTexture: Interface\AddOns\AdventForever\Media\Logo
+## SavedVariables: AdventForeverDB
+## OptionalDeps: EllesmereUI
+
+Core.lua
+Comm.lua
+Config.lua
+Standings.lua
+Ledger.lua
+Bank.lua
+Attendance.lua
+Honor.lua
+Alts.lua
+Dungeons.lua
+Recruit.lua
+Trade.lua
+Loot.lua
+Theme.lua
+UI.lua
