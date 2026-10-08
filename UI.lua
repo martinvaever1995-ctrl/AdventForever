@@ -1845,8 +1845,11 @@ local function CreateLoot()
             row.cells.won:SetTextColor(unpack(Theme.ROLE.os[1]))
             local session = select(2, AF.Loot:Sessions())[selectedSid]
             row.cells.equipped:Set(c.equipped, session and session.link, c.response ~= nil)
-            local wish = c.wish and ("|cffffd155wish #%d|r"):format(c.wish) or nil
-            row.cells.note:SetText(wish and c.note and (wish .. "  " .. c.note) or wish or c.note or "")
+            local parts = {}
+            if c.cantUse then table.insert(parts, "|cffff5555can't use|r") end
+            if c.wish then table.insert(parts, ("|cffffd155wish #%d|r"):format(c.wish)) end
+            if c.note then table.insert(parts, c.note) end
+            row.cells.note:SetText(table.concat(parts, "  "))
             row.cells.note:SetTextColor(unpack(C.dim))
 
             -- Votes: the count on a button; our own vote gets the accent border.
@@ -1868,7 +1871,8 @@ local function CreateLoot()
         end,
         onRowEnter = function(row, c)
             EffortTooltip(row, c.name, c.member)
-            if c.wish or c.note then GameTooltip:AddLine(" ") end
+            if c.wish or c.note or c.cantUse then GameTooltip:AddLine(" ") end
+            if c.cantUse then GameTooltip:AddLine(c.cantUse .. ".", 1, 0.33, 0.33, true) end
             if c.wish then
                 GameTooltip:AddLine(("#%d on their wishlist"):format(c.wish), 1, 0.82, 0.33)
             end
@@ -1993,6 +1997,7 @@ local function CreatePopup()
         local parts = {}
         local wish = AF.Wishlist:MyRank(self.entry.link)
         if wish then table.insert(parts, ("|cffffd155On your wishlist (#%d)|r"):format(wish)) end
+        if self.cantUse then table.insert(parts, "|cffff5555You can't use this|r") end
         if me then table.insert(parts, "Your effort " .. me.effort) end
         local waiting = #AF.Loot:Incoming()
         if waiting > 1 then table.insert(parts, "1 of " .. waiting) end
@@ -2018,6 +2023,7 @@ function UI:ShowPopup()
 
     popup.icon:SetItem(entry.link)
     popup.link:SetText(entry.link)
+    popup.cantUse = not AF.Loot.CanUse(entry.link, select(2, UnitClass("player")))
     local equipLoc = select(4, C_Item.GetItemInfoInstant(entry.link))
     local equipped = AF.Loot.EquippedFor(entry.link)
     if equipLoc == "" then
@@ -2381,6 +2387,124 @@ end
 AF:On("VERSIONS_UPDATED", RefreshVersions)
 
 -------------------------------------------------------------------------------
+--  Raid invites window
+-------------------------------------------------------------------------------
+local invites
+local MAX_RANKS = 10
+
+local function RefreshInvites()
+    if not invites or not invites:IsShown() then return end
+    local p = AF.Invites:Prefs()
+    local ranks = AF.Invites:Ranks()
+    for i, check in ipairs(invites.ranks) do
+        local rank = ranks[i]
+        check:SetShown(rank ~= nil)
+        check.label:SetShown(rank ~= nil)
+        if rank then
+            check.rankIndex = rank.index
+            check.label:SetText(rank.name)
+            check:SetHitRectInsets(0, -(check.label:GetStringWidth() + 8), 0, 0)
+            check.checked = p.ranks[rank.index] == true
+            check.mark:SetShown(check.checked)
+        end
+    end
+    local matching = AF.Invites:Matching()
+    invites.matching = matching
+    invites.count:SetText(("%d online guild member%s match%s%s."):format(#matching, #matching == 1 and "" or "s",
+        #matching == 1 and "es" or "", next(p.ranks) == nil and " (no rank ticked: every rank)" or ""))
+    invites.go.label:SetText(#matching > 0 and ("Invite %d"):format(#matching) or "Invite")
+    invites.go:SetEnabled(#matching > 0)
+    invites.go:SetAlpha(#matching > 0 and 1 or 0.5)
+    invites.whisper.checked = AF.Invites:Listening()
+    invites.whisper.mark:SetShown(invites.whisper.checked)
+end
+
+local function CreateInvites()
+    invites = Theme.Window("AdventForeverInvites", "Raid invites", 380, 318, 60)
+    local p = AF.Invites:Prefs()
+
+    local ranksLabel = Theme.Label(invites, "Guild ranks")
+    ranksLabel:SetPoint("TOPLEFT", 14, -36)
+    invites.ranks = {}
+    for i = 1, MAX_RANKS do
+        local check = Theme.Check(invites, "", false, function(on)
+            p.ranks[invites.ranks[i].rankIndex] = on or nil
+            RefreshInvites()
+        end)
+        local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+        check:SetPoint("TOPLEFT", 16 + col * 176, -58 - row * 22)
+        invites.ranks[i] = check
+    end
+
+    local effortLabel = Theme.Text(invites, 12)
+    effortLabel:SetPoint("TOPLEFT", 16, -176)
+    effortLabel:SetText("Minimum effort")
+    invites.effort = Theme.EditBox(invites, 60)
+    invites.effort:SetPoint("LEFT", effortLabel, "RIGHT", 10, 0)
+    invites.effort:SetNumeric(true)
+    invites.effort:SetText(p.minEffort > 0 and tostring(p.minEffort) or "")
+    invites.effort:SetScript("OnTextChanged", function(box)
+        p.minEffort = tonumber(box:GetText()) or 0
+        RefreshInvites()
+    end)
+    local effortHint = Theme.Text(invites, 11, C.dim)
+    effortHint:SetPoint("LEFT", invites.effort, "RIGHT", 8, 0)
+    effortHint:SetText("empty = anyone")
+
+    -- The count, with the names on hover.
+    local countArea = CreateFrame("Frame", nil, invites)
+    countArea:SetPoint("TOPLEFT", 16, -204)
+    countArea:SetSize(348, 18)
+    invites.count = Theme.Text(countArea, 12, C.dim)
+    invites.count:SetPoint("LEFT")
+    countArea:SetScript("OnEnter", function(self)
+        if not invites.matching or #invites.matching == 0 then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Will be invited")
+        for _, name in ipairs(invites.matching) do
+            local member = AF.Standings:All()[name]
+            GameTooltip:AddLine(AF:ShortName(name), ClassColor(member and member.classFile))
+        end
+        GameTooltip:Show()
+    end)
+    countArea:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    invites.go = Theme.Button(invites, "Invite", 110, 24)
+    invites.go:SetPoint("TOPRIGHT", -14, -230)
+    invites.go:SetScript("OnClick", function()
+        AF.Invites:InviteMatching()
+        C_Timer.After(1, RefreshInvites)
+    end)
+
+    local line = Theme.Line(invites)
+    line:SetPoint("TOPLEFT", 14, -266)
+    line:SetPoint("TOPRIGHT", -14, -266)
+    line:SetHeight(1)
+    invites.whisper = Theme.Check(invites, "Invite guild members who whisper me", AF.Invites:Listening(), function(on)
+        AF.Invites:SetListening(on)
+    end)
+    invites.whisper:SetPoint("TOPLEFT", 16, -284)
+    invites.keyword = Theme.EditBox(invites, 70)
+    invites.keyword:SetPoint("TOPRIGHT", -14, -279)
+    invites.keyword:SetText(p.keyword)
+    invites.keyword:SetScript("OnTextChanged", function(box)
+        local word = box:GetText():match("^%s*(.-)%s*$")
+        if word ~= "" then p.keyword = word end
+    end)
+
+    invites:SetScript("OnShow", RefreshInvites)
+end
+
+function UI:ShowInvites()
+    if not invites then CreateInvites() end
+    invites:Show()
+    RefreshInvites()
+end
+
+AF:On("STANDINGS_UPDATED", RefreshInvites)
+AF:RegisterEvent("GROUP_ROSTER_UPDATE", function() C_Timer.After(1, RefreshInvites) end)
+
+-------------------------------------------------------------------------------
 --  Login nudge: a short summary card about a minute after logging in
 -------------------------------------------------------------------------------
 local NUDGE_DELAY = 55      -- seconds after login: the ledger sync / a snapshot has landed by then
@@ -2550,8 +2674,181 @@ AF:On("NEWER_VERSION", function(version)
     end)
 end)
 
+-------------------------------------------------------------------------------
+--  Minimap button: left-click opens the window, right-click a menu, drag moves it
+-------------------------------------------------------------------------------
+local minimapButton, minimapMenu
+
+local function MinimapPrefs()
+    AF.db.prefs = AF.db.prefs or {}
+    local p = AF.db.prefs.minimap
+    if type(p) ~= "table" then
+        p = { angle = 225 }
+        AF.db.prefs.minimap = p
+    end
+    return p
+end
+
+local function PlaceMinimapButton()
+    local angle = math.rad(MinimapPrefs().angle or 225)
+    local radius = Minimap:GetWidth() / 2 + 5
+    minimapButton:ClearAllPoints()
+    minimapButton:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
+end
+
+-- The menu entries: label, action, officers only.
+local MENU = {
+    { "Effort", function() UI:ShowMain(1) end },
+    { "Me", function() UI:ShowMe() end },
+    { "Wishlist", function() UI:ShowWishlist() end },
+    { "Crafters", function() UI:ShowCrafters() end },
+    { "Attunements", function() UI:ShowAttunements() end },
+    false,
+    { "Check group", function() UI:ShowVersions() end },
+    { "Raid invites", function() UI:ShowInvites() end },
+    { "Loot window", function() UI:ToggleLootWindow() end },
+    { "Trades", function() UI:ShowTrades() end },
+    false,
+    { "Loot history", function() UI:ShowLootHistory() end, true },
+    { "Options", function() UI:ToggleOptions() end, true },
+    { "Hide this button", function() UI:SetMinimapShown(false) end },
+}
+
+local function CreateMinimapMenu()
+    minimapMenu = CreateFrame("Frame", "AdventForeverMinimapMenu", UIParent, "BackdropTemplate")
+    minimapMenu:SetFrameStrata("DIALOG")
+    minimapMenu:SetClampedToScreen(true)
+    Theme.Backdrop(minimapMenu, C.bg)
+    minimapMenu.items = {}
+    for i, entry in ipairs(MENU) do
+        local item
+        if entry then
+            item = CreateFrame("Button", nil, minimapMenu)
+            item:SetSize(150, 20)
+            item.text = Theme.Text(item, 12)
+            item.text:SetPoint("LEFT", 10, 0)
+            item.text:SetText(entry[1])
+            local hl = item:CreateTexture(nil, "HIGHLIGHT")
+            hl:SetAllPoints()
+            Theme.Accented(hl, 0.15)
+            item:SetScript("OnClick", function()
+                minimapMenu:Hide()
+                entry[2]()
+            end)
+            item.officer = entry[3]
+        else
+            item = CreateFrame("Frame", nil, minimapMenu)
+            item:SetSize(150, 9)
+            local line = Theme.Line(item)
+            line:SetPoint("LEFT", 8, 0)
+            line:SetPoint("RIGHT", -8, 0)
+            line:SetHeight(1)
+        end
+        minimapMenu.items[i] = item
+    end
+    -- Clicking anywhere else closes it.
+    minimapMenu:SetScript("OnEvent", function(self)
+        if not self:IsMouseOver() and not (minimapButton and minimapButton:IsMouseOver()) then self:Hide() end
+    end)
+    minimapMenu:SetScript("OnShow", function(self) pcall(self.RegisterEvent, self, "GLOBAL_MOUSE_DOWN") end)
+    minimapMenu:SetScript("OnHide", function(self) pcall(self.UnregisterEvent, self, "GLOBAL_MOUSE_DOWN") end)
+    table.insert(UISpecialFrames, "AdventForeverMinimapMenu")
+    minimapMenu:Hide()
+end
+
+local function ToggleMinimapMenu(anchor)
+    if not minimapMenu then CreateMinimapMenu() end
+    if minimapMenu:IsShown() then return minimapMenu:Hide() end
+    local officer = AF.Ledger:CanRecord()
+    local y = -5
+    for _, item in ipairs(minimapMenu.items) do
+        local show = not item.officer or officer
+        item:SetShown(show)
+        if show then
+            item:ClearAllPoints()
+            item:SetPoint("TOPLEFT", 1, y)
+            y = y - item:GetHeight()
+        end
+    end
+    minimapMenu:SetSize(152, -y + 5)
+    minimapMenu:ClearAllPoints()
+    minimapMenu:SetPoint("TOPRIGHT", anchor, "BOTTOMLEFT", 8, 8)
+    minimapMenu:Show()
+end
+
+local function CreateMinimapButton()
+    local b = CreateFrame("Button", "AdventForeverMinimapButton", Minimap)
+    b:SetSize(31, 31)
+    b:SetFrameStrata("MEDIUM")
+    b:SetFrameLevel(8)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:RegisterForDrag("LeftButton")
+    b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetSize(20, 20)
+    bg:SetPoint("TOPLEFT", 7, -5)
+    bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    local icon = b:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(18, 18)
+    icon:SetPoint("TOPLEFT", 7, -6)
+    icon:SetTexture(Theme.LOGO)
+    if icon.SetMask then pcall(icon.SetMask, icon, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
+    local border = b:CreateTexture(nil, "OVERLAY")
+    border:SetSize(53, 53)
+    border:SetPoint("TOPLEFT")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+
+    b:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then return ToggleMinimapMenu(self) end
+        if minimapMenu then minimapMenu:Hide() end
+        UI:ToggleStandings()
+    end)
+    b:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", function()
+            local mx, my = Minimap:GetCenter()
+            local scale = Minimap:GetEffectiveScale()
+            local cx, cy = GetCursorPosition()
+            MinimapPrefs().angle = math.deg(math.atan2(cy / scale - my, cx / scale - mx))
+            PlaceMinimapButton()
+        end)
+    end)
+    b:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine("AdventForever")
+        GameTooltip:AddLine("Left-click: open", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Right-click: menu", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Drag: move", 0.8, 0.8, 0.8)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    minimapButton = b
+    PlaceMinimapButton()
+end
+
+function UI:SetMinimapShown(shown)
+    MinimapPrefs().hidden = not shown or nil
+    if shown and not minimapButton then CreateMinimapButton() end
+    if minimapButton then minimapButton:SetShown(shown) end
+    if not shown then AF:Print("Minimap button hidden. /af minimap shows it again.") end
+end
+
+function UI:ToggleMinimap()
+    self:SetMinimapShown(MinimapPrefs().hidden == true)
+end
+
 function UI:Enable()
     C_Timer.After(NUDGE_DELAY, function()
         if UI.NudgeEnabled() and IsInGuild() then UI:ShowNudge() end
     end)
+    if Minimap and not MinimapPrefs().hidden then CreateMinimapButton() end
+    -- The addon list under the minimap (where the client has one).
+    if AddonCompartmentFrame and AddonCompartmentFrame.RegisterAddon then
+        pcall(AddonCompartmentFrame.RegisterAddon, AddonCompartmentFrame, {
+            text = "AdventForever",
+            icon = Theme.LOGO,
+            notCheckable = true,
+            func = function() UI:ToggleStandings() end,
+        })
+    end
 end

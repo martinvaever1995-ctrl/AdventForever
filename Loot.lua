@@ -62,6 +62,89 @@ function Loot.IlvlDiff(link, equipped)
     return level - weakest, false
 end
 
+-------------------------------------------------------------------------------
+--  Can this class use the item? (classic proficiencies, at max level)
+-------------------------------------------------------------------------------
+local ARMOR, WEAPON = 4, 2      -- item class IDs
+-- Armor subclass -> classes that can wear it.
+local ARMOR_USERS = {
+    [1] = "ALL",                                                           -- cloth
+    [2] = { DRUID = 1, ROGUE = 1, HUNTER = 1, SHAMAN = 1, WARRIOR = 1, PALADIN = 1 },   -- leather
+    [3] = { HUNTER = 1, SHAMAN = 1, WARRIOR = 1, PALADIN = 1 },              -- mail
+    [4] = { WARRIOR = 1, PALADIN = 1 },                                      -- plate
+    [6] = { WARRIOR = 1, PALADIN = 1, SHAMAN = 1 },                          -- shield
+    [7] = { PALADIN = 1 }, [8] = { DRUID = 1 }, [9] = { SHAMAN = 1 },        -- libram, idol, totem
+}
+local ARMOR_NAMES = { [2] = "leather", [3] = "mail", [4] = "plate", [6] = "shields", [7] = "librams",
+    [8] = "idols", [9] = "totems" }
+-- Weapon subclass -> classes that can use it.
+local WEAPON_USERS = {
+    [0] = { WARRIOR = 1, PALADIN = 1, HUNTER = 1, SHAMAN = 1 },                                     -- one-handed axes
+    [1] = { WARRIOR = 1, PALADIN = 1, HUNTER = 1, SHAMAN = 1 },                                     -- two-handed axes
+    [2] = { WARRIOR = 1, HUNTER = 1, ROGUE = 1 },                                                   -- bows
+    [3] = { WARRIOR = 1, HUNTER = 1, ROGUE = 1 },                                                   -- guns
+    [4] = { WARRIOR = 1, PALADIN = 1, ROGUE = 1, PRIEST = 1, SHAMAN = 1, DRUID = 1 },               -- one-handed maces
+    [5] = { WARRIOR = 1, PALADIN = 1, SHAMAN = 1, DRUID = 1 },                                      -- two-handed maces
+    [6] = { WARRIOR = 1, PALADIN = 1, HUNTER = 1 },                                                 -- polearms
+    [7] = { WARRIOR = 1, PALADIN = 1, HUNTER = 1, ROGUE = 1, MAGE = 1, WARLOCK = 1 },               -- one-handed swords
+    [8] = { WARRIOR = 1, PALADIN = 1, HUNTER = 1 },                                                 -- two-handed swords
+    [10] = { WARRIOR = 1, HUNTER = 1, PRIEST = 1, SHAMAN = 1, MAGE = 1, WARLOCK = 1, DRUID = 1 },   -- staves
+    [13] = { WARRIOR = 1, HUNTER = 1, ROGUE = 1, SHAMAN = 1, DRUID = 1 },                           -- fist weapons
+    [15] = { WARRIOR = 1, HUNTER = 1, ROGUE = 1, PRIEST = 1, SHAMAN = 1, MAGE = 1, WARLOCK = 1, DRUID = 1 },   -- daggers
+    [16] = { WARRIOR = 1, HUNTER = 1, ROGUE = 1 },                                                  -- thrown
+    [18] = { WARRIOR = 1, HUNTER = 1, ROGUE = 1 },                                                  -- crossbows
+    [19] = { PRIEST = 1, MAGE = 1, WARLOCK = 1 },                                                   -- wands
+}
+
+-- Class files allowed by the item's "Classes: ..." line (nil if it has none).
+local function AllowedClasses(link)
+    local pattern = ITEM_CLASSES_ALLOWED and "^" .. ITEM_CLASSES_ALLOWED:gsub("%%s", "(.+)") .. "$"
+    if not pattern then return nil end
+    local lines
+    if C_TooltipInfo and C_TooltipInfo.GetHyperlink then
+        local ok, data = pcall(C_TooltipInfo.GetHyperlink, link)
+        lines = ok and data and data.lines
+    end
+    if not lines then return nil end
+    for _, line in ipairs(lines) do
+        local text = line.leftText
+        local list = type(text) == "string" and not AF:IsSecret(text) and text:match(pattern)
+        if list then
+            local allowed = {}
+            for name in list:gmatch("[^,]+") do
+                name = name:match("^%s*(.-)%s*$")
+                for file, localized in pairs(LOCALIZED_CLASS_NAMES_MALE or {}) do
+                    if localized == name then allowed[file] = true end
+                end
+                for file, localized in pairs(LOCALIZED_CLASS_NAMES_FEMALE or {}) do
+                    if localized == name then allowed[file] = true end
+                end
+            end
+            return allowed
+        end
+    end
+end
+
+-- false plus a reason when classFile can't use the item; true otherwise (also
+-- when we can't tell).
+function Loot.CanUse(link, classFile)
+    if type(link) ~= "string" or not classFile then return true end
+    local allowed = AllowedClasses(link)
+    if allowed and next(allowed) and not allowed[classFile] then
+        return false, "Class-restricted item"
+    end
+    local _, _, _, equipLoc, _, classID, subclassID = C_Item.GetItemInfoInstant(link)
+    local users = (classID == ARMOR and ARMOR_USERS[subclassID]) or (classID == WEAPON and WEAPON_USERS[subclassID])
+    if not users or users == "ALL" or users[classFile] then return true end
+    local className = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[classFile]) or classFile
+    if classID == ARMOR then
+        return false, ("%ss can't use %s"):format(className, ARMOR_NAMES[subclassID] or "this armor")
+    end
+    local subclassInfo = C_Item.GetItemSubClassInfo or GetItemSubClassInfo
+    local weaponName = subclassInfo and select(2, pcall(subclassInfo, classID, subclassID))
+    return false, ("%ss can't use %s"):format(className, type(weaponName) == "string" and weaponName:lower() or "this weapon")
+end
+
 -- Notes from other players can't carry chat codes into our windows.
 local function CleanNote(note)
     if type(note) ~= "string" then return nil end
@@ -310,6 +393,7 @@ local function TestCandidates(session)
             name = fake.name, response = resp, equipped = fake.equipped, won = fake.won, note = fake.note, wish = fake.wish,
             member = { classFile = fake.classFile, weeks = fake.weeks, effort = fake.effort },
             effort = fake.effort, group = resp and GROUP[resp] or 4, voters = votes[fake.name] or {},
+            cantUse = resp and resp ~= Loot.PASS and select(2, Loot.CanUse(session.link, fake.classFile)) or nil,
         })
     end
     -- You, with your real numbers, once you answer the popup.
@@ -319,6 +403,7 @@ local function TestCandidates(session)
         name = AF.playerName, response = mine and mine.r, equipped = mine and mine.eq or {}, won = {},
         note = mine and mine.note, wish = AF.Wishlist:MyRank(session.link), voters = votes[AF.playerName] or {},
         member = me, effort = me and me.effort or -1, group = mine and GROUP[mine.r] or 4,
+        cantUse = mine and mine.r ~= Loot.PASS and select(2, Loot.CanUse(session.link, select(2, UnitClass("player")))) or nil,
     })
     return SortCandidates(list)
 end
@@ -338,6 +423,8 @@ function Loot:Candidates(sid)
     for _, name in ipairs(names) do
         local resp = session.responses[name]
         local member = AF.Standings:Get(name)
+        local unit = AF:GroupUnit(name)
+        local classFile = (member and member.classFile) or (unit and select(2, UnitClass(unit)))
         table.insert(list, {
             name = name,
             response = resp and resp.r,
@@ -350,6 +437,8 @@ function Loot:Candidates(sid)
             won = self:WonThisWeek(name),
             group = resp and GROUP[resp.r] or 4,
             voters = votes[name] or {},
+            -- Why they can't use it, when they asked for it anyway.
+            cantUse = resp and resp.r ~= Loot.PASS and select(2, Loot.CanUse(session.link, classFile)) or nil,
         })
     end
     return SortCandidates(list)

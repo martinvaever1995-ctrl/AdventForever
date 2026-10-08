@@ -1,5 +1,27 @@
 # AdventForever
 
+## v2.0.3 (beta)
+
+### Minimap button
+- A minimap button with the Advent logo: **left-click** opens the window, **right-click** opens
+  a menu (Effort, Me, Wishlist, Crafters, Attunements, Check group, Raid invites, Loot window,
+  Trades, and for officers Loot history and Options), **drag** moves it around the minimap.
+- Hide it from its menu; `/af minimap` brings it back.
+
+### Raid invites
+- `/af invite` (or the minimap menu): tick the guild ranks to invite and, if you like, a
+  minimum effort. One click invites everyone online who matches. Hover the count to see who.
+- From solo it invites 4, turns the party into a raid as soon as someone joins, then invites
+  the rest.
+- **Whisper invites:** switch it on and guild members who whisper you the keyword (default
+  "inv") get an invite. It stays off until you switch it on, every session.
+
+### Can't use
+- The loot window marks **can't use** in red when a player answers Main spec or Off spec on an
+  item their class can't use (armor type, weapon type, shields, librams / idols / totems, and
+  class-restricted items like tier pieces). Hover them for the reason.
+- The loot popup tells you too: **You can't use this**.
+
 ## v2.0.2 (beta)
 
 ### Versions and raid readiness

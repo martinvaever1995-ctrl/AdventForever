@@ -96,6 +96,8 @@ that off per addon in EllesmereUI's options.
 | `/af item <shift-click items>` | Start a loot session by hand (loot authority) |
 | `/af adjust <name> <raid\|bank\|honor> <+/-points> [reason]` | Officers: correct this week's points in a category (0 removes the correction) |
 | `/af bank` | Guild bank rules and the wanted list (officers edit) |
+| `/af invite` | Raid invites by rank and minimum effort, and invites by whisper keyword |
+| `/af minimap` | Show or hide the minimap button |
 | `/af attune` | Who in the guild is attuned to which raid (officers add or remove attunements) |
 | `/af crafters [item]` | Who in the guild can craft something, or everyone's professions |
 | `/af wish [item]` | Your wishlist (up to 10 ranked items, seen only by officers), or add an item to it |

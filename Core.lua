@@ -5,8 +5,8 @@
 local ADDON_NAME, AF = ...
 _G.AdventForever = AF
 
-AF.VERSION = 20002          -- major * 10000 + minor * 100 + patch; bump with ## Version
-AF.VERSION_STRING = "2.0.2"
+AF.VERSION = 20003          -- major * 10000 + minor * 100 + patch; bump with ## Version
+AF.VERSION_STRING = "2.0.3"
 AF.PREFIX = "AdvForever"    -- addon message prefix (max 16 chars)
 AF.PREFIX_BULK = "AdvForeverBulk"   -- the slow lane for large data (Comm.lua)
 
@@ -325,6 +325,8 @@ local HELP = {
     "/af adjust <name> <raid|bank|honor> <+/-points> [reason] - correct this week's points in a category (officers)",
     "/af log - ledger events (Log tab, officers)",
     "/af bank - guild bank rules and the wanted list (Bank tab)",
+    "/af invite - raid invites: everyone online at chosen ranks / minimum effort, and guildies who whisper a keyword",
+    "/af minimap - show or hide the minimap button (left-click opens, right-click for a menu, drag to move)",
     "/af attune - who in the guild is attuned to which raid (officers add or remove attunements there)",
     "/af crafters [item] - who in the guild can craft something; without a search, everyone's professions",
     "/af wish [shift-click item] - your wishlist (up to 10 items, ranked; only officers see it), or add an item to it",
@@ -446,6 +448,8 @@ commands.unlink = function(args)
 end
 commands.rules = function() AF.UI:ShowRules() end
 commands.attune = function() AF.UI:ShowAttunements() end
+commands.invite = function() AF.UI:ShowInvites() end
+commands.minimap = function() AF.UI:ToggleMinimap() end
 commands.crafters = function(args)
     AF.UI:ShowCrafters()
     if args ~= "" then AF.UI:SearchCrafters(args) end
