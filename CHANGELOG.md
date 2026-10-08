@@ -1,5 +1,9 @@
 # AdventForever
 
+## v2.0.4 (beta)
+
+- AdventForever is now on CurseForge as well. No other changes since 2.0.3.
+
 ## v2.0.3 (beta)
 
 ### Minimap button
