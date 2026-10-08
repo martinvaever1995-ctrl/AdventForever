@@ -4,6 +4,7 @@
 ## Version: 2.0.3
 ## IconTexture: Interface\AddOns\AdventForever\Media\Logo
 ## X-Wago-ID: j6jAa0NR
+## X-Curse-Project-ID: 1732698
 ## SavedVariables: AdventForeverDB
 ## OptionalDeps: EllesmereUI
 
