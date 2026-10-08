@@ -3,6 +3,8 @@ package-as: AdventForever
 # Kept in the repository, left out of the download.
 ignore:
   - docs
+  - .github
   - .gitignore
+  - .gitattributes
   - .pkgmeta
   - README.md

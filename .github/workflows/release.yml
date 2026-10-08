@@ -1,0 +1,25 @@
+# Pushing a version tag (v2.0.0, v2.1.0-beta.1, ...) builds the addon zip with the
+# BigWigs packager and uploads it to Wago (needs the WAGO_API_TOKEN secret and the
+# X-Wago-ID line in the .toc) and to a GitHub Release. Tags with "beta" or "alpha"
+# in them are uploaded as beta/alpha builds. .pkgmeta decides what goes in the zip.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # create the GitHub Release
+    env:
+      WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # the packager builds the changelog from history and tags
+
+      - uses: BigWigsMods/packager@v2
