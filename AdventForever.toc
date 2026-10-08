@@ -3,6 +3,7 @@
 ## Notes: Guild effort scores (raids, guild bank, honor) shown to officers at loot time.
 ## Version: 2.0.1
 ## IconTexture: Interface\AddOns\AdventForever\Media\Logo
+## X-Wago-ID: j6jAa0NR
 ## SavedVariables: AdventForeverDB
 ## OptionalDeps: EllesmereUI
 
