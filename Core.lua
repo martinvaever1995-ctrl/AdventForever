@@ -5,8 +5,8 @@
 local ADDON_NAME, AF = ...
 _G.AdventForever = AF
 
-AF.VERSION = 20000          -- major * 10000 + minor * 100 + patch; bump with ## Version
-AF.VERSION_STRING = "2.0.0"
+AF.VERSION = 20001          -- major * 10000 + minor * 100 + patch; bump with ## Version
+AF.VERSION_STRING = "2.0.1"
 AF.PREFIX = "AdvForever"    -- addon message prefix (max 16 chars)
 
 -------------------------------------------------------------------------------
