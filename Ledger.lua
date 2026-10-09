@@ -462,7 +462,8 @@ local function RunGroups(week)
     if runGroups[week] then return runGroups[week] end
     local list = {}
     for _, e in ipairs(runs[week] or {}) do
-        if Live(e) then table.insert(list, e) end
+        -- Only end-game dungeons count (runs recorded before that rule, too).
+        if Live(e) and not AF.Dungeons.IsLeveling(e.enc) then table.insert(list, e) end
     end
     table.sort(list, function(a, b) return a.t < b.t end)
     local groups = {}
@@ -489,6 +490,9 @@ local function RunGroups(week)
 end
 
 -- How many runs a player (any of their characters) did in a week.
+-- Which bosses end a counted dungeon is config; recount when it changes.
+AF:On("CONFIG_UPDATED", function() wipe(runGroups) end)
+
 function Ledger:DungeonRuns(week, name)
     local chars = self:Characters(name)
     local count = 0

@@ -7,8 +7,9 @@
 --  own right away), and the ledger groups reports of the same run into one.
 --  Reports wait in saved data until an officer confirms them (RUNACK).
 --
---  Final bosses: the classic dungeons' are built in below (encounter IDs as the
---  game reports them; several dungeons have one per wing). New Forever dungeons
+--  Only end-game dungeons count. Final bosses: the classic dungeons' are built in
+--  below (encounter IDs as the game reports them; several dungeons have one per
+--  wing); the leveling ones are known but don't count. New Forever dungeons
 --  aren't known yet: an officer marks the final boss once with /af final after
 --  killing it, which also counts that run. Officers' changes sync as config.
 -------------------------------------------------------------------------------
@@ -18,8 +19,8 @@ local Dungeons = AF:NewModule("Dungeons")
 local RESEND_INTERVAL = 300
 local FINAL_WINDOW = 15 * 60    -- /af final can still count a kill this recent
 
--- encounterID -> "Dungeon: Boss"
-local FINALS = {
+-- encounterID -> "Dungeon: Boss". Leveling dungeons, which don't count.
+local LEVELING = {
     [2735] = "Ragefire Chasm: Bazzalan",
     [592]  = "Wailing Caverns: Mutanus the Devourer",
     [2747] = "The Deadmines: Edwin VanCleef",
@@ -37,6 +38,10 @@ local FINALS = {
     [600]  = "Zul'Farrak: Chief Ukorz Sandscalp",
     [429]  = "Maraudon: Princess Theradras",
     [3584] = "Sunken Temple: Shade of Eranikus", [493] = "Sunken Temple: Shade of Eranikus",
+}
+
+-- encounterID -> "Dungeon: Boss". End-game (level 60) dungeons: these count.
+local FINALS = {
     [2790] = "Blackrock Depths: Emperor Dagran Thaurissan",
     [275]  = "Lower Blackrock Spire: Overlord Wyrmthalak",
     [3069] = "Upper Blackrock Spire: General Drakkisath",
@@ -50,8 +55,14 @@ local FINALS = {
 
 local lastKill      -- the most recent boss kill in a dungeon: { enc, en, map, mn, t, p }
 
+-- Whether a run ending with this boss counts: an end-game final boss, built in
+-- or marked by an officer.
 function Dungeons.IsFinal(encounterID)
     return FINALS[encounterID] ~= nil or AF.Config:Get("finals")[encounterID] == true
+end
+
+function Dungeons.IsLeveling(encounterID)
+    return LEVELING[encounterID] ~= nil and AF.Config:Get("finals")[encounterID] ~= true
 end
 
 function Dungeons.BuiltInCount()
@@ -115,7 +126,11 @@ AF:RegisterEvent("ENCOUNTER_END", function(_, encounterID, encounterName, _, _, 
         local mapName, _, _, _, _, _, _, mapID = GetInstanceInfo()
         lastKill = { enc = encounterID, en = encounterName, map = tonumber(mapID) or 0,
             mn = (not AF:IsSecret(mapName) and mapName) or "Dungeon", t = GetServerTime(), p = GuildInGroup() }
-        if Dungeons.IsFinal(encounterID) then Submit(lastKill) end
+        if Dungeons.IsFinal(encounterID) then
+            Submit(lastKill)
+        elseif Dungeons.IsLeveling(encounterID) and #lastKill.p >= AF.Config:Get("dungeonGuildMin") then
+            AF:Printf("%s done. Leveling dungeons don't count toward effort, only end-game ones.", lastKill.mn)
+        end
     end)
 end)
 
@@ -126,6 +141,9 @@ function Dungeons:ToggleFinal()
     if not lastKill then return AF:Print("Kill the dungeon's last boss first, then type /af final.") end
     local enc = lastKill.enc
     if FINALS[enc] then return AF:Printf("%s is already a built-in final boss.", lastKill.en) end
+    if LEVELING[enc] and not AF.Config:Get("finals")[enc] then
+        return AF:Printf("%s ends a leveling dungeon, which doesn't count.", lastKill.en)
+    end
     local marking = not AF.Config:Get("finals")[enc]
     local ok, err = AF.Config:SetFinal(enc, marking)
     if not ok then return AF:Print(err) end
@@ -150,7 +168,8 @@ local function ValidReport(r, sender)
         if type(name) ~= "string" then return false end
         if name == sender then inRun = true end
     end
-    return inRun and #r.p >= AF.Config:Get("dungeonGuildMin")
+    -- Older versions still report leveling dungeons.
+    return inRun and #r.p >= AF.Config:Get("dungeonGuildMin") and Dungeons.IsFinal(r.enc)
 end
 
 AF.Comm:On("RUN", function(sender, list)

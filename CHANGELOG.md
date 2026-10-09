@@ -1,5 +1,14 @@
 # AdventForever
 
+## v2.0.5 (beta)
+
+### Dungeons
+- Only **end-game dungeons** count toward the dungeon score now: Blackrock Depths, Lower and
+  Upper Blackrock Spire, Dire Maul (East, West, North), Scholomance and Stratholme (both sides).
+  Leveling dungeons don't count, and finishing one with guildies says so in chat.
+- Leveling-dungeon runs already recorded this week no longer count either.
+- New Forever dungeons still count once an officer marks their final boss with `/af final`.
+
 ## v2.0.4 (beta)
 
 - AdventForever is now on CurseForge as well. No other changes since 2.0.3.

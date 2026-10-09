@@ -283,7 +283,7 @@ function UI.CategoryHelp(category)
     elseif category == "honor" then
         return ("Scales with your honor this week; %s honor gives the full score."):format(BreakUpLargeNumbers(get("honorTarget")))
     end
-    return ("%g points per dungeon finished (its last boss) with %d+ guild members in the group."):format(
+    return ("%g points per end-game dungeon finished (its last boss) with %d+ guild members in the group. Leveling dungeons don't count."):format(
         get("dungeonPerRun"), get("dungeonGuildMin"))
 end
 
@@ -533,7 +533,7 @@ function Rules:Refresh()
         N(BreakUpLargeNumbers(cfg("honorTarget")))))
 
     s.dungeon.title:SetText(("Dungeons: up to %s"):format(N(cfg("dungeonMax"))))
-    s.dungeon.body:SetText(("%s points for each dungeon you finish (its last boss) with at least %s guild members in the group, you included. Your own client reports the run. Alts count with your main."):format(
+    s.dungeon.body:SetText(("%s points for each end-game dungeon you finish (its last boss) with at least %s guild members in the group, you included. Leveling dungeons don't count. Your own client reports the run. Alts count with your main."):format(
         N(("%g"):format(cfg("dungeonPerRun"))), N(cfg("dungeonGuildMin"))))
 
     s.loot.title:SetText("Loot")
